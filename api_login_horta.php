@@ -8,6 +8,12 @@ header("Access-Control-Allow-Headers: Content-Type, Access-Control-Allow-Headers
 //usa o arquivo de conexão do DB
 include "banco_mysql.php";
 
+require 'vendor/autoload.php';
+
+use Firebase\JWT\JWT;
+
+$chave_secreta = 'me_haqueou_é_gay';
+
 $dados = json_decode(file_get_contents("php://input"));
 $resposta = array();
 
@@ -26,16 +32,21 @@ if (!empty($dados->email) && !empty($dados->senha)) {
             $hash_senha_banco = $linha['hash_senha'];
 
             if (password_verify($dados->senha, $hash_senha_banco)){
-                http_response_code(200);
-                $resposta = array (
-                    "status" => "sucesso", 
-                    "mensagem" => "Login bem-sucedido.", 
-                    "dados_horta" => array (
-                        "id" => $linha['id_hortas'],
-                        "nome_horta" => $linha['nome_horta'],
-                        "nome_produtor" => $linha['nome_produtor']
-                    )
-                );
+                $payload = [
+                    'iss' => 'localhost',
+                    'aud' => 'localhost',
+                    'iat' => time(),
+                    'exp' => time() + 3600,
+                    'data' => [
+                        'id' => $linha['id_hortas'], 'nome_produtor' => $linha['nome_produtor']
+                    ]
+                    ];
+                    $jwt = JWT::encode($payload, $chave_secreta, 'HS256');
+                    $resposta = array(
+                        "status" => "sucesso", 
+                        "mensagem" => "Login bem sucedido.",
+                        "token" => $jwt
+                    );    
             } else {
                 http_response_code(401);
                 $resposta = array ("status" => "erro", "mensagem" => "Senha incorreta.");
