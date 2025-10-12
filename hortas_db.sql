@@ -30,7 +30,7 @@ CREATE TABLE estoques (
     id_estoques INT AUTO_INCREMENT PRIMARY KEY,
     hortas_id_hortas INT,
     total_itens BIGINT,
-    dt_validade DATE,.
+    dt_validade DATE,
     dt_colheita DATE,
     dt_plantio DATE,
     nm_item VARCHAR(100),
@@ -54,4 +54,36 @@ CREATE TABLE produtor (
     CONSTRAINT fk_produtor_hortas FOREIGN KEY (hortas_id_hortas)
         REFERENCES hortas(id_hortas)
         ON DELETE CASCADE ON UPDATE CASCADE
+);
+
+-- Tabela para registrar as entradas de itens no estoque
+CREATE TABLE entradas_estoque (
+    id_entrada INT AUTO_INCREMENT PRIMARY KEY,
+    estoques_id_estoques INT,
+    produtor_id_produtor INT,
+    dt_entrada DATETIME DEFAULT CURRENT_TIMESTAMP,
+    quantidade DECIMAL(10,2) NOT NULL,
+    motivo VARCHAR(255),
+    CONSTRAINT fk_entradas_estoques FOREIGN KEY (estoques_id_estoques)
+        REFERENCES estoques(id_estoques)
+        ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT fk_entradas_produtor FOREIGN KEY (produtor_id_produtor)
+        REFERENCES produtor(id_produtor)
+        ON DELETE SET NULL ON UPDATE CASCADE
+);
+
+-- Tabela para registrar as saídas de itens do estoque
+CREATE TABLE saidas_estoque (
+    id_saida INT AUTO_INCREMENT PRIMARY KEY,
+    estoques_id_estoques INT,
+    produtor_id_produtor INT,
+    dt_saida DATETIME DEFAULT CURRENT_TIMESTAMP,
+    quantidade DECIMAL(10,2) NOT NULL,
+    motivo VARCHAR(255),
+    CONSTRAINT fk_saidas_estoques FOREIGN KEY (estoques_id_estoques)
+        REFERENCES estoques(id_estoques)
+        ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT fk_saidas_produtor FOREIGN KEY (produtor_id_produtor)
+        REFERENCES produtor(id_produtor)
+        ON DELETE SET NULL ON UPDATE CASCADE
 );
