@@ -35,7 +35,7 @@ CREATE TABLE hortas (
     nome VARCHAR(50),
     descricao VARCHAR(255),
     visibilidade INT(1),
-    receitas_baixadas BIGINT,
+    receitas_geradas BIGINT,
     CONSTRAINT fk_hortas_endereco FOREIGN KEY (endereco_hortas_id_endereco_hortas)
         REFERENCES endereco_hortas(id_endereco_hortas)
         ON DELETE SET NULL ON UPDATE CASCADE
