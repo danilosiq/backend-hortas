@@ -11,15 +11,17 @@ function send_error($message, $statusCode = 500) {
 // ---
 // Passo 1: Obter Chaves Secretas (Variáveis de Ambiente)
 // ---
-require __DIR__ . '/vendor/autoload.php';
+require '/vendor/autoload.php';
 
-use Dotenv\Dotenv;
+// use Dotenv\Dotenv;
 
 // Carrega o arquivo .env
-$dotenv = Dotenv::createImmutable(__DIR__);
-$dotenv->load();
+// $dotenv = Dotenv::createImmutable(__DIR__);
+// $dotenv->load();
 
-$geminiApiKey = $_ENV['chave_gemini'] ?? null;
+env_var_name = 'chave_gemini';
+
+$geminiApiKey = getenv('chave_gemini');
 
 if (!$geminiApiKey) {
     send_error('A chave da API do Gemini (GEMINI_API_KEY) não foi encontrada no ambiente do servidor.');
