@@ -19,7 +19,7 @@ require '/vendor/autoload.php';
 // $dotenv = Dotenv::createImmutable(__DIR__);
 // $dotenv->load();
 
-env_var_name = 'chave_gemini';
+$env_var_name = 'chave_gemini';
 
 $geminiApiKey = getenv('chave_gemini');
 
