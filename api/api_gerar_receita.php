@@ -11,7 +11,7 @@ function send_error($message, $statusCode = 500) {
 // ---
 // Passo 1: Obter Chaves Secretas (Variáveis de Ambiente)
 // ---
-require '/vendor/autoload.php';
+// require '/vendor/autoload.php';
 
 // use Dotenv\Dotenv;
 
