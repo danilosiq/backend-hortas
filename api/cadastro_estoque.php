@@ -24,8 +24,16 @@ if (
     exit;
 }
 
-// Usa o arquivo de conexão do MySQL
-include "banco_mysql.php";
+include "validador_jwt.php"; // Nosso novo validador de token
+
+
+// Autenticação do Usuário via JWT
+$dados_usuario = validar_token_jwt();
+$id_produtor = $dados_usuario['id_produtor'] ?? null;
+
+if (!$id_produtor) {
+    send_error('Token inválido ou não contém o ID do produtor.', 401);
+}
 
 try {
     // ATUALIZAÇÃO: A query agora insere o 'produto_id_produto' em vez de 'nm_item'.

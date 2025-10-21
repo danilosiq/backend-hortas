@@ -1,6 +1,17 @@
 <?php
 include 'banco_mysql.php';
 
+include "validador_jwt.php"; // Nosso novo validador de token
+
+// ---
+// Passo 1: Autenticação do Usuário via JWT
+// ---
+$dados_usuario = validar_token_jwt();
+$id_produtor = $dados_usuario['id_produtor'] ?? null;
+
+if (!$id_produtor) {
+    send_error('Token inválido ou não contém o ID do produtor.', 401);
+}
 // Editar horta
 function atualizarHorta($id, $nome, $descricao, $endereco_id, $cnpj, $visibilidade) {
     global $conn;

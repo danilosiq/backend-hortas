@@ -5,25 +5,48 @@ header("Access-Control-Allow-Origin: *");
 header("Access-Control-Allow-Methods: POST, OPTIONS");
 header("Access-Control-Allow-Headers: Content-Type, Access-Control-Allow-Headers, Authorization, X-Requested-With");
 
-// Usa o arquivo de conexão do DB
-include "banco_mysql.php";
+// --- CORREÇÃO 1: Lidar com requisição CORS pre-flight (OPTIONS) ---
+if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
+    http_response_code(200); // Responde OK para o pre-flight
+    exit;
+}
+    use Firebase\JWT\JWT;
+    use Firebase\JWT\Key;
+    use Dotenv\Dotenv;
 
-// Inclui o autoload do Composer para carregar a biblioteca JWT
-require 'vendor/autoload.php';
+$resposta = array(); // Inicializa a resposta fora do try
 
-use Firebase\JWT\JWT;
-use Firebase\JWT\Key;
+// --- CORREÇÃO 3: Bloco try...catch genérico ---
+try {
+    
+    // Usa o arquivo de conexão do DB
+    include "banco_mysql.php";
 
-// Lembre-se de mover esta chave para uma variável de ambiente em produção!
-$chave_secreta = 'sua-chave-secreta-super-longa-e-aleatoria-aqui-gerada-com-random-bytes';
+    // Inclui o autoload do Composer para carregar a biblioteca JWT
+    require __DIR__.'/../api/vendor/autoload.php';
+    
+    // --- Carregamento do .env ---
+    $dotenv = Dotenv::createImmutable(__DIR__ . '/../');
+    $dotenv->load();
+    $chave_secreta = $_ENV['JWT_SECRET_KEY'] ?? null;
 
-$dados = json_decode(file_get_contents("php://input"));
-$resposta = array();
+    // --- CORREÇÃO 2: Verificar se a chave secreta foi carregada ---
+    if (is_null($chave_secreta)) {
+        // Loga o erro para o desenvolvedor, mas não para o usuário
+        error_log("FATAL: JWT_SECRET_KEY não está definida no arquivo .env");
+        // Lança uma exceção para ser pega pelo bloco catch
+        throw new \Exception("Erro de configuração interna do servidor.");
+    }
 
-if ($dados && !empty($dados->email) && !empty($dados->senha)) {
-    try {
-        // ATUALIZAÇÃO: Adicionado 'hortas_id_hortas' ao SELECT para retorná-lo no token.
-        // Isso ajuda o frontend a saber a qual horta o produtor logado pertence.
+    // --- Processamento da Requisição ---
+    $dados = json_decode(file_get_contents("php://input"));
+
+    if (!$dados || empty($dados->email) || empty($dados->senha)) {
+        http_response_code(400); // Bad Request
+        $resposta = array("status" => "erro", "mensagem" => "Email e senha são obrigatórios.");
+    } else {
+        
+        // --- Lógica de Banco de Dados ---
         $sql = "SELECT id_produtor, nome_produtor, hash_senha, hortas_id_hortas FROM produtor WHERE email_produtor = :email LIMIT 1";
         $stmt = $conn->prepare($sql);
 
@@ -37,8 +60,9 @@ if ($dados && !empty($dados->email) && !empty($dados->senha)) {
 
             if (password_verify($dados->senha, $hash_senha_banco)) {
                 
-                $issuer = 'localhost';
-                $audience = 'localhost';
+                // --- Geração do JWT ---
+                $issuer = 'localhost'; // Recomendação: Mover para .env (ex: $_ENV['APP_URL'])
+                $audience = 'localhost'; // Recomendação: Mover para .env
                 $issuedAt = time();
                 $expirationTime = $issuedAt + 3600; // Expira em 1 hora
 
@@ -50,7 +74,6 @@ if ($dados && !empty($dados->email) && !empty($dados->senha)) {
                     'data' => [
                         'id' => $linha['id_produtor'],
                         'nome' => $linha['nome_produtor'],
-                        // ATUALIZAÇÃO: Incluído o ID da horta no payload do token.
                         'id_horta' => $linha['hortas_id_hortas']
                     ]
                 ];
@@ -63,6 +86,7 @@ if ($dados && !empty($dados->email) && !empty($dados->senha)) {
                     "mensagem" => "Login bem-sucedido.",
                     "token" => $jwt
                 );
+
             } else {
                 http_response_code(401); // Unauthorized
                 $resposta = array("status" => "erro", "mensagem" => "Credenciais inválidas.");
@@ -71,15 +95,22 @@ if ($dados && !empty($dados->email) && !empty($dados->senha)) {
             http_response_code(401); // Unauthorized
             $resposta = array("status" => "erro", "mensagem" => "Credenciais inválidas.");
         }
-    } catch (PDOException $e) {
-        http_response_code(500); // Internal Server Error
-        $resposta = array("status" => "erro", "mensagem" => "Erro no servidor. Tente novamente mais tarde.");
-        error_log($e->getMessage()); // Loga o erro para o desenvolvedor
     }
-} else {
-    http_response_code(400); // Bad Request
-    $resposta = array("status" => "erro", "mensagem" => "Email e senha são obrigatórios.");
+
+} catch (PDOException $e) {
+    // --- Captura específica para erros de Banco de Dados ---
+    http_response_code(500); // Internal Server Error
+    $resposta = array("status" => "erro", "mensagem" => "Erro no servidor (DB). Tente novamente mais tarde.");
+    error_log("PDOException: " . $e->getMessage()); // Loga o erro real para depuração
+
+} catch (Throwable $t) {
+    // --- Captura genérica para todos os outros erros (Dotenv, JWT, PHP, etc.) ---
+    http_response_code(500); // Internal Server Error
+    $resposta = array("status" => "erro", "mensagem" => "Erro interno no servidor.");
+    // Loga a mensagem real, o arquivo e a linha para depuração
+    error_log("Throwable: " . $t->getMessage() . " em " . $t->getFile() . ":" . $t->getLine());
 }
 
+// Resposta final
 echo json_encode($resposta);
 ?>

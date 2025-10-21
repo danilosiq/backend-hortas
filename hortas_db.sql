@@ -48,7 +48,7 @@ CREATE TABLE estoques (
     id_estoques INT AUTO_INCREMENT PRIMARY KEY,
     hortas_id_hortas INT,
     produto_id_produto INT,
-    ds_quantiade DECIMAL(10,2),
+    ds_quantidade DECIMAL(10,2),
     dt_validade DATE,
     dt_colheita DATE,
     dt_plantio DATE,
