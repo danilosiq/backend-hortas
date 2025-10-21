@@ -11,13 +11,13 @@ function send_error($message, $statusCode = 500) {
 // ---
 // Passo 1: Obter Chaves Secretas (Variáveis de Ambiente)
 // ---
-require __DIR__ . '/vendor/autoload.php';
+//require __DIR__ . '/vendor/autoload.php';
 
-use Dotenv\Dotenv;
+//use Dotenv\Dotenv;
 
 // Carrega o arquivo .env
-$dotenv = Dotenv::createImmutable(__DIR__);
-$dotenv->load();
+//$dotenv = Dotenv::createImmutable(__DIR__);
+//$dotenv->load();
 
 $geminiApiKey = $_ENV['chave_gemini'] ?? null;
 

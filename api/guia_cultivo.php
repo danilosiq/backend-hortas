@@ -16,16 +16,12 @@ function send_error($message, $statusCode = 500) {
 // ---
 // Passo 1: Carregar Variáveis de Ambiente (Chave da API)
 // ---
-// Garante que as dependências do Composer (como o Dotenv) sejam carregadas.
-require __DIR__ . '/vendor/autoload.php';
+//require __DIR__ . '/vendor/autoload.php';
+//use Dotenv\Dotenv;
 
-use Dotenv\Dotenv;
+//$dotenv = Dotenv::createImmutable(__DIR__);
+//$dotenv->load();
 
-// Carrega as variáveis do arquivo .env localizado no mesmo diretório.
-$dotenv = Dotenv::createImmutable(__DIR__);
-$dotenv->load();
-
-// Obtém a chave da API do Gemini. É crucial que ela esteja no seu arquivo .env.
 $geminiApiKey = $_ENV['chave_gemini'] ?? null;
 
 if (!$geminiApiKey) {
@@ -35,31 +31,34 @@ if (!$geminiApiKey) {
 // ---
 // Passo 2: Receber e Validar a Requisição do Frontend
 // ---
-// Apenas requisições do tipo POST são aceitas.
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     send_error('Método não permitido. Apenas requisições POST são aceitas.', 405);
 }
 
-// Lê o corpo da requisição e decodifica o JSON para um array associativo.
 $inputData = json_decode(file_get_contents('php://input'), true);
 
-// Verifica se houve algum erro na decodificação do JSON.
 if (json_last_error() !== JSON_ERROR_NONE) {
     send_error('JSON inválido recebido do frontend.', 400);
 }
 
-// Valida se os campos 'local' e 'data' foram enviados e não estão vazios.
-if (empty($inputData['local']) || empty($inputData['data'])) {
-    send_error('Dados de entrada inválidos. As chaves "data" e "local" são obrigatórias.', 400);
+// VALIDAÇÃO ATUALIZADA: Agora inclui 'metodo_cultivo' como obrigatório.
+if (empty($inputData['local']) || empty($inputData['data']) || empty($inputData['metodo_cultivo'])) {
+    send_error('Dados de entrada inválidos. As chaves "data", "local" e "metodo_cultivo" são obrigatórias.', 400);
 }
 
-$local = htmlspecialchars($inputData['local']); // Simples sanitização
-$data = htmlspecialchars($inputData['data']);   // Simples sanitização
+$local = htmlspecialchars($inputData['local']);
+$data = htmlspecialchars($inputData['data']);
+// Valida o valor de 'metodo_cultivo' para aceitar apenas 'vaso' ou 'terreno'.
+$metodo_cultivo = strtolower(htmlspecialchars($inputData['metodo_cultivo']));
+if ($metodo_cultivo !== 'vaso' && $metodo_cultivo !== 'terreno') {
+    send_error('Valor para "metodo_cultivo" inválido. Use "vaso" ou "terreno".', 400);
+}
+
 
 // ---
 // Passo 3: Definir o Schema (Estrutura) do JSON de Resposta
 // ---
-// Este schema define para a IA exatamente qual formato o JSON de resposta deve ter.
+// SCHEMA ATUALIZADO: O campo 'metodo_cultivo' agora é um enum para forçar a resposta.
 $guiaSchema = [
     'type' => 'OBJECT',
     'properties' => [
@@ -72,7 +71,7 @@ $guiaSchema = [
                 'properties' => [
                     'nome_planta' => ['type' => 'STRING'],
                     'tipo' => ['type' => 'STRING', 'enum' => ['Hortaliça', 'Fruta', 'Erva Aromática']],
-                    'metodo_cultivo' => ['type' => 'STRING', 'description' => 'Indica se é melhor em vaso ou terreno.'],
+                    'metodo_cultivo' => ['type' => 'STRING', 'enum' => ['Vaso', 'Terreno']],
                     'instrucoes' => ['type' => 'STRING', 'description' => 'Passo-a-passo do plantio.'],
                     'cuidados_especiais' => ['type' => 'STRING', 'description' => 'Dicas de rega, luz, etc.']
                 ],
@@ -86,8 +85,13 @@ $guiaSchema = [
 // ---
 // Passo 4: Construir o Prompt e Fazer a Requisição para a API
 // ---
-// O prompt instrui a IA sobre o que fazer e qual formato de resposta usar.
-$userPrompt = "Aja como um especialista em jardinagem. Crie um guia de cultivo simples e prático para iniciantes, com base na seguinte localização: '$local' e data de plantio: '$data'. O guia deve sugerir 3 a 5 plantas (frutas, ervas e/ou hortaliças) adequadas para a época e local, indicando se podem ser plantadas em vaso ou diretamente no terreno. A resposta DEVE ser um JSON seguindo o schema definido.";
+// PROMPT ATUALIZADO: Agora instrui a IA a filtrar as sugestões pelo método de cultivo escolhido.
+$userPrompt = "Aja como um especialista em jardinagem. Crie um guia de cultivo simples e prático para iniciantes, com base na localização: '$local' e data de plantio: '$data'.
+O usuário deseja plantar exclusivamente em '$metodo_cultivo'.
+Portanto, sugira de 3 a 5 plantas (frutas, ervas e/ou hortaliças) que sejam especificamente adequadas para o cultivo em '$metodo_cultivo' nesta região e época.
+Para cada planta, confirme no campo 'metodo_cultivo' do JSON que ela é ideal para '$metodo_cultivo'.
+A resposta DEVE ser um JSON seguindo o schema definido, sem markdown.";
+
 
 // Monta o corpo (payload) da requisição para a API.
 $payload = json_encode([
@@ -125,32 +129,8 @@ if (!$jsonString) {
     send_error("A resposta da API não continha o JSON do guia esperado.");
 }
 
-/*
 // ---
-// Passo 5: Atualizar o Contador no Banco de Dados (Opcional)
-// ---
-// O código abaixo foi comentado porque a variável $id_horta não foi definida.
-// Para usá-lo, você precisaria enviar um 'id' do frontend junto com 'data' e 'local'.
-
-include "banco_mysql.php";
-try {
-    // ATUALIZAÇÃO: Incrementa o contador 'guias_gerados' na tabela 'hortas'
-    // A coluna foi renomeada de 'receitas_geradas' para 'guias_gerados' para maior clareza.
-    $id_horta_recebido = $inputData['id_horta'] ?? null;
-    if ($id_horta_recebido) {
-        $sql_update = "UPDATE hortas SET guias_gerados = guias_gerados + 1 WHERE id_hortas = :id_horta";
-        $stmt_update = $conn->prepare($sql_update);
-        $stmt_update->bindValue(':id_horta', $id_horta_recebido, PDO::PARAM_INT);
-        $stmt_update->execute();
-    }
-} catch (PDOException $e) {
-    // Se a atualização falhar, loga o erro mas não impede o envio do guia para o usuário.
-    error_log("Falha ao atualizar contador de guias para a horta ID $id_horta_recebido: " . $e->getMessage());
-}
-*/
-
-// ---
-// Passo 6: Enviar a Resposta de Sucesso para o Frontend
+// Passo 5: Enviar a Resposta de Sucesso para o Frontend
 // ---
 // Envia o JSON gerado pela API diretamente para o frontend.
 echo $jsonString;

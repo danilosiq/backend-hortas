@@ -20,7 +20,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
 
 // Inclui os arquivos necessários
 include "banco_mysql.php";
-include "autenticacao_jwt.php"; // Nosso novo validador de token
+include "validador_jwt.php"; // Nosso novo validador de token
 
 // ---
 // Passo 1: Autenticação do Usuário via JWT
