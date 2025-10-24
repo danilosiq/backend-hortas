@@ -1,126 +1,112 @@
 <?php
-header('Content-Type: application/json; charset=utf-8');
+// =====================================================
+// ✅ CORS - deve ser o primeiro bloco do arquivo
+// =====================================================
+if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
+    header("Access-Control-Allow-Origin: *");
+    header("Access-Control-Allow-Methods: POST, GET, OPTIONS");
+    header("Access-Control-Allow-Headers: Content-Type, Authorization");
+    header("Access-Control-Max-Age: 86400");
+    http_response_code(204);
+    exit();
+}
 
-// Função de utilidade para enviar uma mensagem de erro padronizada e parar o script.
+header("Access-Control-Allow-Origin: *");
+header("Content-Type: application/json; charset=utf-8");
+
+// =====================================================
+// 🔧 Função padrão de erro
+// =====================================================
 function send_error($message, $statusCode = 500) {
     http_response_code($statusCode);
     echo json_encode(['error' => $message]);
     exit();
 }
 
-// ---
-// Passo 1: Obter Chaves Secretas (Variáveis de Ambiente)
-// ---
-<<<<<<< HEAD:api/gerar_receita.php
-//require __DIR__ . '/vendor/autoload.php';
-
-//use Dotenv\Dotenv;
-
-// Carrega o arquivo .env
-//$dotenv = Dotenv::createImmutable(__DIR__);
-//$dotenv->load();
-=======
-require '/vendor/autoload.php';
-
-// use Dotenv\Dotenv;
-
-// Carrega o arquivo .env
-// $dotenv = Dotenv::createImmutable(__DIR__);
-// $dotenv->load();
->>>>>>> 1c7ae91 (h):api/api_gerar_receita.php
-
-env_var_name = 'chave_gemini';
-
-$geminiApiKey = getenv('chave_gemini');
+// =====================================================
+// 🔑 Passo 1: Variável de ambiente
+// =====================================================
+$env_var_name = 'chave_gemini';
+$geminiApiKey = getenv($env_var_name);
 
 if (!$geminiApiKey) {
-    send_error('A chave da API do Gemini (GEMINI_API_KEY) não foi encontrada no ambiente do servidor.');
+    send_error("A chave da API do Gemini ('$env_var_name') não foi encontrada no ambiente do servidor.");
 }
 
-// ---
-// Passo 2: Receber e Validar o Pedido do Frontend
-// ---
+// =====================================================
+// 📩 Passo 2: Recebe e valida POST
+// =====================================================
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
-    send_error('Método não permitido. Apenas requisições POST são aceites.', 405);
+    send_error('Método não permitido. Apenas requisições POST são aceitas.', 405);
 }
 
-// Lê o JSON enviado pelo frontend.
 $inputData = json_decode(file_get_contents('php://input'), true);
 
 if (json_last_error() !== JSON_ERROR_NONE) {
     send_error('JSON inválido recebido do frontend.', 400);
 }
 
-// Validação dos dados de entrada
-if (empty($inputData['itens']) || !is_array($inputData['itens'])) {
-    send_error('Dados de entrada inválidos. Esperava-se um objeto com uma chave "itens" contendo um array.', 400);
+if (empty($inputData) || !is_array($inputData)) {
+    send_error('Dados de entrada inválidos. Esperava-se um array de itens.', 400);
 }
 
-// ATUALIZAÇÃO: Valida se o ID da horta foi enviado para contabilizar a receita gerada
-if (empty($inputData['id_horta'])) {
-    send_error('O ID da horta é obrigatório para gerar uma receita.', 400);
-}
-
-$id_horta = (int)$inputData['id_horta'];
-$itens_receita = $inputData['itens'];
-
-// ---
-// Passo 3: Construir o Prompt para a API Gemini
-// ---
+// =====================================================
+// 🍽️ Passo 3: Monta prompt para Gemini
+// =====================================================
 $alimentosList = [];
 $restricoesList = [];
 $adicionaisList = [];
 
-foreach ($itens_receita as $item) {
-    if (!empty($item['Alimentos'])) {
-        $alimentosList[] = $item['Alimentos'];
-    }
-    if (!empty($item['Restrições']) && strtolower($item['Restrições']) !== 'nenhuma') {
+foreach ($inputData as $item) {
+    if (!empty($item['Alimentos'])) $alimentosList[] = $item['Alimentos'];
+    if (!empty($item['Restrições']) && strtolower($item['Restrições']) !== 'nenhuma')
         $restricoesList[] = $item['Restrições'];
-    }
-    if (!empty($item['Adicionais'])) {
-        $adicionaisList[] = $item['Adicionais'];
-    }
+    if (!empty($item['Adicionais'])) $adicionaisList[] = $item['Adicionais'];
 }
 
 if (empty($alimentosList)) {
     send_error('A lista de alimentos não pode estar vazia.', 400);
 }
 
-// Constrói um prompt claro e detalhado para a IA
 $userPrompt = "Crie uma receita detalhada em português que utilize principalmente os seguintes ingredientes: " . implode(', ', $alimentosList) . ".";
-if (!empty($restricoesList)) {
-    $userPrompt .= " Por favor, leve em consideração as seguintes restrições: " . implode(', ', array_unique($restricoesList)) . ".";
-}
-if (!empty($adicionaisList)) {
+if (!empty($restricoesList))
+    $userPrompt .= " Leve em consideração as seguintes restrições: " . implode(', ', array_unique($restricoesList)) . ".";
+if (!empty($adicionaisList))
     $userPrompt .= " Considere também estas notas: " . implode(', ', array_unique($adicionaisList)) . ".";
-}
-$userPrompt .= " A resposta deve ser um JSON único e bem formatado, contendo o nome da receita, uma descrição curta, uma lista de ingredientes com quantidades, um passo-a-passo das instruções, o tempo de preparo, o número de porções que a receita serve e uma tabela nutricional estimada para uma porção.";
+$userPrompt .= " A resposta deve ser um JSON único e bem formatado contendo nome, descrição, ingredientes, instruções, tempo de preparo, porções e tabela nutricional estimada.";
 
-// ---
-// Passo 4: Preparar e Executar a Chamada para a API Gemini
-// ---
+// =====================================================
+// 🤖 Passo 4: Chama API Gemini
+// =====================================================
 $apiUrl = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent?key=" . $geminiApiKey;
 
 $recipeSchema = [
     'type' => 'OBJECT',
     'properties' => [
-        'NomeDaReceita' => ['type' => 'STRING'], 'Descricao' => ['type' => 'STRING'],
+        'NomeDaReceita' => ['type' => 'STRING'],
+        'Descricao' => ['type' => 'STRING'],
         'Ingredientes' => ['type' => 'ARRAY', 'items' => ['type' => 'STRING']],
         'Instrucoes' => ['type' => 'ARRAY', 'items' => ['type' => 'STRING']],
-        'TempoDePreparo' => ['type' => 'STRING'], 'Porcoes' => ['type' => 'STRING'],
+        'TempoDePreparo' => ['type' => 'STRING'],
+        'Porcoes' => ['type' => 'STRING'],
         'TabelaNutricional' => [
             'type' => 'OBJECT',
-            'properties' => ['Calorias' => ['type' => 'STRING'], 'Carboidratos' => ['type' => 'STRING'], 'Proteinas' => ['type' => 'STRING'], 'Gorduras' => ['type' => 'STRING']],
-            'required' => ['Calorias', 'Carboidratos', 'Proteinas', 'Gorduras']
+            'properties' => [
+                'Calorias' => ['type' => 'STRING'],
+                'Carboidratos' => ['type' => 'STRING'],
+                'Proteinas' => ['type' => 'STRING'],
+                'Gorduras' => ['type' => 'STRING']
+            ]
         ]
-    ],
-    'required' => ['NomeDaReceita', 'Descricao', 'Ingredientes', 'Instrucoes', 'TempoDePreparo', 'Porcoes', 'TabelaNutricional']
+    ]
 ];
 
 $payload = json_encode([
     'contents' => [['parts' => [['text' => $userPrompt]]]],
-    'generationConfig' => ['responseMimeType' => "application/json", 'responseSchema' => $recipeSchema]
+    'generationConfig' => [
+        'responseMimeType' => "application/json",
+        'responseSchema' => $recipeSchema,
+    ],
 ]);
 
 $ch = curl_init($apiUrl);
@@ -134,33 +120,18 @@ curl_close($ch);
 
 if ($httpCode !== 200 || $apiResponse === false) {
     error_log("Erro na API Gemini: " . $apiResponse);
-    send_error("Erro ao comunicar com a API Gemini. Código de Status: $httpCode", $httpCode);
+    send_error("Erro ao comunicar com a API Gemini. Código HTTP: $httpCode", $httpCode);
 }
 
+// =====================================================
+// ✅ Passo 5: Retorna a resposta
+// =====================================================
 $result = json_decode($apiResponse, true);
 $jsonString = $result['candidates'][0]['content']['parts'][0]['text'] ?? null;
 
 if (!$jsonString) {
-    send_error("A resposta da API não continha o JSON da receita esperado.");
+    send_error("A resposta da API não continha o JSON esperado da receita.");
 }
 
-// ---
-// Passo 5: Atualizar o Contador de Receitas no Banco de Dados
-// ---
-include "banco_mysql.php";
-try {
-    // ATUALIZAÇÃO: Incrementa o contador 'receitas_baixadas' na tabela 'hortas'
-    $sql_update = "UPDATE hortas SET receitas_geradas = receitas_geradas + 1 WHERE id_hortas = :id_horta";
-    $stmt_update = $conn->prepare($sql_update);
-    $stmt_update->bindValue(':id_horta', $id_horta, PDO::PARAM_INT);
-    $stmt_update->execute();
-} catch (PDOException $e) {
-    // Se a atualização falhar, loga o erro mas não impede o envio da receita para o usuário
-    error_log("Falha ao atualizar contador de receitas para a horta ID $id_horta: " . $e->getMessage());
-}
-
-// ---
-// Passo 6: Enviar a Resposta de Sucesso para o Frontend
-// ---
 echo $jsonString;
 ?>
