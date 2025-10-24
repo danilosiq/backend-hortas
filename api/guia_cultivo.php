@@ -46,13 +46,18 @@ if (json_last_error() !== JSON_ERROR_NONE) {
     send_error('JSON inválido recebido do frontend.', 400);
 }
 
-if (empty($inputData['planta']) || empty($inputData['cidade']) || empty($inputData['data'])) {
-    send_error('Os campos "planta", "cidade" e "data" são obrigatórios.', 400);
+if (empty($inputData['planta']) || empty($inputData['cidade']) || empty($inputData['data']) || empty($inputData['metodo_cultivo'])) {
+    send_error('Os campos "planta", "cidade", "data" e "metodo_cultivo" são obrigatórios.', 400);
 }
 
 $planta = htmlspecialchars($inputData['planta']);
 $cidade = htmlspecialchars($inputData['cidade']);
 $data = htmlspecialchars($inputData['data']);
+$metodo_cultivo = strtolower(htmlspecialchars($inputData['metodo_cultivo']));
+
+if ($metodo_cultivo !== 'vaso' && $metodo_cultivo !== 'solo') {
+    send_error('O valor de "metodo_cultivo" deve ser "vaso" ou "solo".', 400);
+}
 
 // =====================================================
 // 🧠 Passo 3: Schema esperado do JSON de resposta
@@ -64,7 +69,9 @@ $guiaSchema = [
         'planta' => ['type' => 'STRING'],
         'cidade' => ['type' => 'STRING'],
         'data_considerada' => ['type' => 'STRING'],
+        'metodo_cultivo' => ['type' => 'STRING', 'enum' => ['vaso', 'solo']],
         'introducao' => ['type' => 'STRING'],
+        'modo_cultivo' => ['type' => 'STRING'],
         'rota_irrigacao' => ['type' => 'STRING'],
         'consumo_sol' => ['type' => 'STRING'],
         'tempo_colheita' => ['type' => 'STRING'],
@@ -75,7 +82,9 @@ $guiaSchema = [
         'planta',
         'cidade',
         'data_considerada',
+        'metodo_cultivo',
         'introducao',
+        'modo_cultivo',
         'rota_irrigacao',
         'consumo_sol',
         'tempo_colheita',
@@ -86,20 +95,23 @@ $guiaSchema = [
 // =====================================================
 // ✏️ Passo 4: Monta o prompt e envia à API Gemini
 // =====================================================
-$userPrompt = "Você é um especialista em jardinagem. Crie um guia detalhado sobre o cultivo da planta '$planta' na cidade de '$cidade', considerando a data '$data' como referência atual.
-O guia deve conter APENAS as seguintes informações (em formato JSON, seguindo o schema fornecido):
+$userPrompt = "Você é um especialista em jardinagem. Crie um guia detalhado sobre o cultivo da planta '$planta' na cidade de '$cidade', considerando a data '$data' e o método de cultivo '$metodo_cultivo' (vaso ou solo).
+
+O guia deve conter APENAS as seguintes informações, em formato JSON, seguindo o schema fornecido:
 - 'titulo': um título descritivo do guia
 - 'planta': o nome da planta
 - 'cidade': a cidade informada
 - 'data_considerada': a data informada
+- 'metodo_cultivo': o método informado (vaso ou solo)
 - 'introducao': breve explicação sobre as condições gerais dessa planta
-- 'rota_irrigacao': descreva quanto e com que frequência deve ser irrigada por mês
-- 'consumo_sol': diga se precisa de sol direto ou parcial e quais horários são ideais
+- 'modo_cultivo': instruções específicas de plantio conforme o método de cultivo informado
+- 'rota_irrigacao': quanto e com que frequência irrigar por mês
+- 'consumo_sol': se precisa de sol direto ou parcial e horários ideais
 - 'tempo_colheita': tempo médio até a colheita
-- 'recomendacao_epoca': com base na data e cidade informadas, diga se é ou não uma boa época para o plantio
+- 'recomendacao_epoca': com base na data e cidade informadas, diga se é ou não uma boa época para plantar
 
-Não recomende outras plantas, nem adicione nada além do que foi solicitado.
-Responda apenas com o JSON, sem markdown, sem explicações adicionais.";
+Não recomende outras plantas e não adicione nada além do que foi solicitado.
+Responda apenas com o JSON puro, sem markdown, sem explicações extras.";
 
 $payload = json_encode([
     'contents' => [['parts' => [['text' => $userPrompt]]]],
