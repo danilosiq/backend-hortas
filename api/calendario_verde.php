@@ -46,13 +46,7 @@ $data = htmlspecialchars($inputData['data']);
 // =====================================================
 // 🔑 Carrega chave da API Gemini
 // =====================================================
-require_once __DIR__ . '/vendor/autoload.php';
-use Dotenv\Dotenv;
-
-$dotenv = Dotenv::createImmutable(__DIR__);
-$dotenv->load();
-
-$geminiApiKey = $_ENV['chave_gemini'] ?? null;
+$geminiApiKey = getenv('chave_gemini');
 
 if (!$geminiApiKey) {
     send_error('A chave da API Gemini (chave_gemini) não foi encontrada.');
