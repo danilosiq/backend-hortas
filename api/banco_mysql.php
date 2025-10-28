@@ -1,14 +1,14 @@
 <?php
 // --- LÓGICA PARA ALTERNAR AMBIENTES ---
 
-$host = 'localhost'; // Valor padrão
+$host = '34.28.39.39:3306'; // Valor padrão
 
 // Verifica se o script está rodando em um servidor local ou remoto
 // Você pode mudar 'localhost' para o nome do seu host local se for diferente
 if ($_SERVER['HTTP_HOST'] == 'localhost' || $_SERVER['HTTP_HOST'] == '127.0.0.1') {
     
     // --- Configurações LOCAIS ---
-    $host = '34.28.39.39';
+    $host = '34.28.39.39:3306';
     $dbname = 'hortas_db'; // Nome do banco de dados local
     $user = 'paulistinha';
     $pass = 'ç123456ç';
@@ -17,10 +17,10 @@ if ($_SERVER['HTTP_HOST'] == 'localhost' || $_SERVER['HTTP_HOST'] == '127.0.0.1'
     
     // --- Configurações REMOTAS (PREENCHA AQUI) ---
     // Substitua pelos dados do seu servidor de produção/remoto
-    $host = 'seu_host_remoto.com';     // Ex: sql.seudominio.com
-    $dbname = 'nome_banco_remoto';     // O nome do banco no servidor remoto
-    $user = 'usuario_remoto';        // O usuário do banco remoto
-    $pass = 'senha_remota';          // A senha do banco remoto
+    $host = '34.28.39.39:3306';     // Ex: sql.seudominio.com
+    $dbname = 'hortas_db';     // O nome do banco no servidor remoto
+    $user = 'paulistinha';        // O usuário do banco remoto
+    $pass = 'ç123456ç';          // A senha do banco remoto
 }
 
 // --- CONEXÃO COM O BANCO DE DADOS (PDO) ---
