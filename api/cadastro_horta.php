@@ -1,88 +1,117 @@
 <?php
-// Define que a resposta será no formato JSON
-header("Content-Type: application/json; charset=UTF-8");
-header("Access-Control-Allow-Origin: *");
-header("Access-Control-Allow-Methods: POST, OPTIONS");
-header("Access-Control-Allow-Headers: Content-Type, Access-Control-Allow-Headers, Authorization, X-Requested-With");
-
-// Pega o corpo da requisição JSON enviado pelo frontend
-$dados = json_decode(file_get_contents("php://input"));
-
-$resposta = array();
-
-// --- Validação dos dados recebidos ---
-if (!$dados || empty($dados->nome_horta) || empty($dados->cnpj) || empty($dados->nome_produtor) || empty($dados->nr_cpf) || empty($dados->email_produtor) || empty($dados->senha) || empty($dados->rua) || empty($dados->bairro) || empty($dados->cep) || empty($dados->cidade) || empty($dados->estado) || empty($dados->pais)) {
-    http_response_code(400); // Bad Request
-    $resposta = array("status" => "erro", "mensagem" => "Todos os campos são obrigatórios.");
-    echo json_encode($resposta);
-    exit;
+// =====================================================
+// ✅ CORS - deve ser o primeiro bloco do arquivo
+// =====================================================
+if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
+    header("Access-Control-Allow-Origin: *");
+    header("Access-Control-Allow-Methods: POST, GET, OPTIONS");
+    header("Access-Control-Allow-Headers: Content-Type, Authorization");
+    header("Access-Control-Max-Age: 86400");
+    http_response_code(204);
+    exit();
 }
 
-// Usa o arquivo de conexão do MySQL
-include "banco_mysql.php";
+header("Access-Control-Allow-Origin: *");
+header("Content-Type: application/json; charset=utf-8");
 
+// =====================================================
+// 🔧 Função de erro padronizada
+// =====================================================
+function send_error($message, $statusCode = 500) {
+    http_response_code($statusCode);
+    echo json_encode(['status' => 'erro', 'mensagem' => $message], JSON_UNESCAPED_UNICODE);
+    exit();
+}
+
+// =====================================================
+// 🧩 Importa conexão com o banco
+// =====================================================
+include 'banco_mysql.php'; // deve definir $conn (PDO)
+
+// =====================================================
+// 📩 Validação da requisição
+// =====================================================
+if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+    send_error('Método não permitido. Apenas POST é aceito.', 405);
+}
+
+$dados = json_decode(file_get_contents("php://input"), true);
+
+if (json_last_error() !== JSON_ERROR_NONE) {
+    send_error('JSON inválido enviado.', 400);
+}
+
+$camposObrigatorios = [
+    'nome_horta', 'cnpj', 'nome_produtor', 'nr_cpf',
+    'email_produtor', 'senha', 'rua', 'bairro',
+    'cep', 'cidade', 'estado', 'pais'
+];
+
+foreach ($camposObrigatorios as $campo) {
+    if (empty($dados[$campo])) {
+        send_error("O campo '$campo' é obrigatório.", 400);
+    }
+}
+
+// =====================================================
+// 🧱 Inserção no banco
+// =====================================================
 try {
     $conn->beginTransaction();
 
-    // 1. Inserir o endereço
+    // 1️⃣ Endereço
     $sql_endereco = "INSERT INTO endereco_hortas (nm_rua, nr_cep, nm_bairro, nm_estado, nm_cidade, nm_pais) 
-                       VALUES (:rua, :cep, :bairro, :estado, :cidade, :pais)";
-    $stmt_endereco = $conn->prepare($sql_endereco);
-    $stmt_endereco->bindValue(':rua', htmlspecialchars(strip_tags($dados->rua)));
-    $stmt_endereco->bindValue(':cep', htmlspecialchars(strip_tags($dados->cep)));
-    $stmt_endereco->bindValue(':bairro', htmlspecialchars(strip_tags($dados->bairro)));
-    $stmt_endereco->bindValue(':estado', htmlspecialchars(strip_tags($dados->estado)));
-    $stmt_endereco->bindValue(':cidade', htmlspecialchars(strip_tags($dados->cidade)));
-    $stmt_endereco->bindValue(':pais', htmlspecialchars(strip_tags($dados->pais)));
-    $stmt_endereco->execute();
-    
-    $id_endereco_inserido = $conn->lastInsertId();
+                     VALUES (:rua, :cep, :bairro, :estado, :cidade, :pais)";
+    $stmt = $conn->prepare($sql_endereco);
+    $stmt->execute([
+        ':rua' => htmlspecialchars($dados['rua']),
+        ':cep' => htmlspecialchars($dados['cep']),
+        ':bairro' => htmlspecialchars($dados['bairro']),
+        ':estado' => htmlspecialchars($dados['estado']),
+        ':cidade' => htmlspecialchars($dados['cidade']),
+        ':pais' => htmlspecialchars($dados['pais'])
+    ]);
 
-    // 2. Inserir a horta, usando o ID do endereço
-    $sql_horta = "INSERT INTO hortas (endereco_hortas_id_endereco_hortas, nr_cnpj, nome, descricao, visibilidade, receitas_geradas) 
-                    VALUES (:id_endereco, :cnpj, :nome_horta, :descricao, :visibilidade, 0)";
-    
-    $stmt_horta = $conn->prepare($sql_horta);
-    $stmt_horta->bindValue(':id_endereco', $id_endereco_inserido);
-    $stmt_horta->bindValue(':cnpj', htmlspecialchars(strip_tags($dados->cnpj)));
-    $stmt_horta->bindValue(':nome_horta', htmlspecialchars(strip_tags($dados->nome_horta)));
-    $stmt_horta->bindValue(':descricao', htmlspecialchars(strip_tags($dados->descricao ?? '')));
-    $stmt_horta->bindValue(':visibilidade', $dados->visibilidade ?? 1, PDO::PARAM_INT); // Define 1 (visível) como padrão
-    $stmt_horta->execute();
+    $id_endereco = $conn->lastInsertId();
 
-    $id_horta_inserida = $conn->lastInsertId();
-    
-    // Prepara a senha para ser inserida com hash seguro
-    $hash_senha = password_hash($dados->senha, PASSWORD_DEFAULT);
+    // 2️⃣ Horta
+    $sql_horta = "INSERT INTO hortas (endereco_hortas_id_endereco_hortas, nr_cnpj, nome, descricao, visibilidade, receitas_geradas)
+                  VALUES (:id_endereco, :cnpj, :nome, :descricao, :visibilidade, 0)";
+    $stmt = $conn->prepare($sql_horta);
+    $stmt->execute([
+        ':id_endereco' => $id_endereco,
+        ':cnpj' => htmlspecialchars($dados['cnpj']),
+        ':nome' => htmlspecialchars($dados['nome_horta']),
+        ':descricao' => htmlspecialchars($dados['descricao'] ?? ''),
+        ':visibilidade' => $dados['visibilidade'] ?? 1
+    ]);
 
-    // 3. Inserir o produtor, usando o ID da horta
-    $sql_produtor = "INSERT INTO produtor (hortas_id_hortas, nome_produtor, nr_cpf, email_produtor, hash_senha, telefone_produtor) 
-                       VALUES (:id_horta, :nome_produtor, :nr_cpf, :email_produtor, :hash_senha, :telefone)";
-    
-    $stmt_produtor = $conn->prepare($sql_produtor);
-    $stmt_produtor->bindValue(':id_horta', $id_horta_inserida);
-    $stmt_produtor->bindValue(':nome_produtor', htmlspecialchars(strip_tags($dados->nome_produtor)));
-    $stmt_produtor->bindValue(':nr_cpf', htmlspecialchars(strip_tags($dados->nr_cpf)));
-    $stmt_produtor->bindValue(':email_produtor', htmlspecialchars(strip_tags($dados->email_produtor)));
-    $stmt_produtor->bindValue(':hash_senha', $hash_senha);
-    $stmt_produtor->bindValue(':telefone', htmlspecialchars(strip_tags($dados->telefone_produtor ?? '')));
+    $id_horta = $conn->lastInsertId();
 
+    // 3️⃣ Produtor
+    $sql_produtor = "INSERT INTO produtor (hortas_id_hortas, nome_produtor, nr_cpf, email_produtor, hash_senha, telefone_produtor)
+                     VALUES (:id_horta, :nome_produtor, :nr_cpf, :email_produtor, :hash_senha, :telefone)";
+    $stmt = $conn->prepare($sql_produtor);
+    $stmt->execute([
+        ':id_horta' => $id_horta,
+        ':nome_produtor' => htmlspecialchars($dados['nome_produtor']),
+        ':nr_cpf' => htmlspecialchars($dados['nr_cpf']),
+        ':email_produtor' => htmlspecialchars($dados['email_produtor']),
+        ':hash_senha' => password_hash($dados['senha'], PASSWORD_DEFAULT),
+        ':telefone' => htmlspecialchars($dados['telefone_produtor'] ?? '')
+    ]);
 
-    if ($stmt_produtor->execute()) {
-        $conn->commit();
-        http_response_code(201); // Created
-        $resposta = array("status" => "sucesso", "mensagem" => "Horta e produtor cadastrados com sucesso!");
-    } else {
-        $conn->rollBack();
-        http_response_code(503); // Service Unavailable
-        $resposta = array("status" => "erro", "mensagem" => "Não foi possível cadastrar a horta ou produtor.");
-    }
+    $conn->commit();
+
+    echo json_encode([
+        'status' => 'sucesso',
+        'mensagem' => 'Horta e produtor cadastrados com sucesso!',
+        'id_horta' => $id_horta,
+        'id_endereco' => $id_endereco
+    ], JSON_UNESCAPED_UNICODE);
 
 } catch (PDOException $e) {
     $conn->rollBack();
-    http_response_code(500); // Internal Server Error
-    $resposta = array("status" => "erro", "mensagem" => "Erro no banco de dados: " . $e->getMessage());
+    send_error('Erro no banco de dados: ' . $e->getMessage(), 500);
 }
-
-echo json_encode($resposta);
 ?>
