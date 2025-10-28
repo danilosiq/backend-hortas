@@ -28,6 +28,10 @@ function send_error($message, $statusCode = 500) {
 // =====================================================
 include 'banco_mysql.php';
 
+if (!isset($conn) || !$conn) {
+    send_error('Falha na conexão com o banco de dados. Verifique banco_mysql.php.');
+}
+
 // =====================================================
 // 📩 Recebe e valida JSON
 // =====================================================
@@ -41,7 +45,7 @@ if (json_last_error() !== JSON_ERROR_NONE) {
     send_error('JSON inválido enviado.', 400);
 }
 
-$bairro = $inputData['bairro'] ?? '';
+$bairro = trim($inputData['bairro'] ?? '');
 
 if (empty($bairro)) {
     send_error('O campo "bairro" é obrigatório.', 400);
@@ -52,7 +56,8 @@ if (empty($bairro)) {
 // =====================================================
 $sql = "SELECT h.nome, h.descricao, e.nm_rua AS endereco, e.nm_bairro AS bairro
         FROM hortas h
-        INNER JOIN endereco_hortas e ON h.endereco_hortas_id_endereco_hortas = e.id_endereco_hortas
+        INNER JOIN endereco_hortas e 
+            ON h.endereco_hortas_id_endereco_hortas = e.id_endereco_hortas
         WHERE e.nm_bairro = ?
         ORDER BY h.nome ASC";
 
@@ -76,6 +81,7 @@ while ($row = mysqli_fetch_assoc($result)) {
 }
 
 mysqli_stmt_close($stmt);
+mysqli_close($conn);
 
 // =====================================================
 // ✅ Retorno final

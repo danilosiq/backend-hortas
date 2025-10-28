@@ -8,10 +8,10 @@ $host = 'localhost'; // Valor padrão
 if ($_SERVER['HTTP_HOST'] == 'localhost' || $_SERVER['HTTP_HOST'] == '127.0.0.1') {
     
     // --- Configurações LOCAIS ---
-    $host = 'localhost';
+    $host = '34.28.39.39';
     $dbname = 'hortas_db'; // Nome do banco de dados local
-    $user = 'root';
-    $pass = '';
+    $user = 'paulistinha';
+    $pass = 'ç123456ç';
 
 } else {
     
