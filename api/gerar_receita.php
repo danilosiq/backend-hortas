@@ -15,123 +15,103 @@ header("Access-Control-Allow-Origin: *");
 header("Content-Type: application/json; charset=utf-8");
 
 // =====================================================
-// 🔧 Função padrão de erro
+// 🔧 Função de erro padronizada
 // =====================================================
 function send_error($message, $statusCode = 500) {
     http_response_code($statusCode);
-    echo json_encode(['error' => $message]);
+    echo json_encode(['status' => 'erro', 'mensagem' => $message], JSON_UNESCAPED_UNICODE);
     exit();
 }
 
 // =====================================================
-// 🔑 Passo 1: Variável de ambiente
+// 🧩 Importa conexão com o banco
 // =====================================================
-$env_var_name = 'chave_gemini';
-$geminiApiKey = getenv($env_var_name);
-
-if (!$geminiApiKey) {
-    send_error("A chave da API do Gemini ('$env_var_name') não foi encontrada no ambiente do servidor.");
-}
+include 'banco_mysql.php'; // deve definir $conn (PDO)
 
 // =====================================================
-// 📩 Passo 2: Recebe e valida POST
+// 📩 Validação da requisição
 // =====================================================
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
-    send_error('Método não permitido. Apenas requisições POST são aceitas.', 405);
+    send_error('Método não permitido. Apenas POST é aceito.', 405);
 }
 
-$inputData = json_decode(file_get_contents('php://input'), true);
+$dados = json_decode(file_get_contents("php://input"), true);
 
 if (json_last_error() !== JSON_ERROR_NONE) {
-    send_error('JSON inválido recebido do frontend.', 400);
+    send_error('JSON inválido enviado.', 400);
 }
 
-if (empty($inputData) || !is_array($inputData)) {
-    send_error('Dados de entrada inválidos. Esperava-se um array de itens.', 400);
-}
-
-// =====================================================
-// 🍽️ Passo 3: Monta prompt para Gemini
-// =====================================================
-$alimentosList = [];
-$restricoesList = [];
-$adicionaisList = [];
-
-foreach ($inputData as $item) {
-    if (!empty($item['Alimentos'])) $alimentosList[] = $item['Alimentos'];
-    if (!empty($item['Restrições']) && strtolower($item['Restrições']) !== 'nenhuma')
-        $restricoesList[] = $item['Restrições'];
-    if (!empty($item['Adicionais'])) $adicionaisList[] = $item['Adicionais'];
-}
-
-if (empty($alimentosList)) {
-    send_error('A lista de alimentos não pode estar vazia.', 400);
-}
-
-$userPrompt = "Crie uma receita detalhada em português que utilize principalmente os seguintes ingredientes: " . implode(', ', $alimentosList) . ".";
-if (!empty($restricoesList))
-    $userPrompt .= " Leve em consideração as seguintes restrições: " . implode(', ', array_unique($restricoesList)) . ".";
-if (!empty($adicionaisList))
-    $userPrompt .= " Considere também estas notas: " . implode(', ', array_unique($adicionaisList)) . ".";
-$userPrompt .= " A resposta deve ser um JSON único e bem formatado contendo nome, descrição, ingredientes, instruções, tempo de preparo, porções e tabela nutricional estimada.";
-
-// =====================================================
-// 🤖 Passo 4: Chama API Gemini
-// =====================================================
-$apiUrl = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent?key=" . $geminiApiKey;
-
-$recipeSchema = [
-    'type' => 'OBJECT',
-    'properties' => [
-        'NomeDaReceita' => ['type' => 'STRING'],
-        'Descricao' => ['type' => 'STRING'],
-        'Ingredientes' => ['type' => 'ARRAY', 'items' => ['type' => 'STRING']],
-        'Instrucoes' => ['type' => 'ARRAY', 'items' => ['type' => 'STRING']],
-        'TempoDePreparo' => ['type' => 'STRING'],
-        'Porcoes' => ['type' => 'STRING'],
-        'TabelaNutricional' => [
-            'type' => 'OBJECT',
-            'properties' => [
-                'Calorias' => ['type' => 'STRING'],
-                'Carboidratos' => ['type' => 'STRING'],
-                'Proteinas' => ['type' => 'STRING'],
-                'Gorduras' => ['type' => 'STRING']
-            ]
-        ]
-    ]
+$camposObrigatorios = [
+    'nome_horta', 'cnpj', 'nome_produtor', 'nr_cpf',
+    'email_produtor', 'senha', 'rua', 'bairro',
+    'cep', 'cidade', 'estado', 'pais'
 ];
 
-$payload = json_encode([
-    'contents' => [['parts' => [['text' => $userPrompt]]]],
-    'generationConfig' => [
-        'responseMimeType' => "application/json",
-        'responseSchema' => $recipeSchema,
-    ],
-]);
-
-$ch = curl_init($apiUrl);
-curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-curl_setopt($ch, CURLOPT_HTTPHEADER, ['Content-Type: application/json']);
-curl_setopt($ch, CURLOPT_POST, true);
-curl_setopt($ch, CURLOPT_POSTFIELDS, $payload);
-$apiResponse = curl_exec($ch);
-$httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-curl_close($ch);
-
-if ($httpCode !== 200 || $apiResponse === false) {
-    error_log("Erro na API Gemini: " . $apiResponse);
-    send_error("Erro ao comunicar com a API Gemini. Código HTTP: $httpCode", $httpCode);
+foreach ($camposObrigatorios as $campo) {
+    if (empty($dados[$campo])) {
+        send_error("O campo '$campo' é obrigatório.", 400);
+    }
 }
 
 // =====================================================
-// ✅ Passo 5: Retorna a resposta
+// 🧱 Inserção no banco
 // =====================================================
-$result = json_decode($apiResponse, true);
-$jsonString = $result['candidates'][0]['content']['parts'][0]['text'] ?? null;
+try {
+    $conn->beginTransaction();
 
-if (!$jsonString) {
-    send_error("A resposta da API não continha o JSON esperado da receita.");
+    // 1️⃣ Endereço
+    $sql_endereco = "INSERT INTO endereco_hortas (nm_rua, nr_cep, nm_bairro, nm_estado, nm_cidade, nm_pais) 
+                     VALUES (:rua, :cep, :bairro, :estado, :cidade, :pais)";
+    $stmt = $conn->prepare($sql_endereco);
+    $stmt->execute([
+        ':rua' => htmlspecialchars($dados['rua']),
+        ':cep' => htmlspecialchars($dados['cep']),
+        ':bairro' => htmlspecialchars($dados['bairro']),
+        ':estado' => htmlspecialchars($dados['estado']),
+        ':cidade' => htmlspecialchars($dados['cidade']),
+        ':pais' => htmlspecialchars($dados['pais'])
+    ]);
+
+    $id_endereco = $conn->lastInsertId();
+
+    // 2️⃣ Horta
+    $sql_horta = "INSERT INTO hortas (endereco_hortas_id_endereco_hortas, nr_cnpj, nome, descricao, visibilidade, receitas_geradas)
+                  VALUES (:id_endereco, :cnpj, :nome, :descricao, :visibilidade, 0)";
+    $stmt = $conn->prepare($sql_horta);
+    $stmt->execute([
+        ':id_endereco' => $id_endereco,
+        ':cnpj' => htmlspecialchars($dados['cnpj']),
+        ':nome' => htmlspecialchars($dados['nome_horta']),
+        ':descricao' => htmlspecialchars($dados['descricao'] ?? ''),
+        ':visibilidade' => $dados['visibilidade'] ?? 1
+    ]);
+
+    $id_horta = $conn->lastInsertId();
+
+    // 3️⃣ Produtor
+    $sql_produtor = "INSERT INTO produtor (hortas_id_hortas, nome_produtor, nr_cpf, email_produtor, hash_senha, telefone_produtor)
+                     VALUES (:id_horta, :nome_produtor, :nr_cpf, :email_produtor, :hash_senha, :telefone)";
+    $stmt = $conn->prepare($sql_produtor);
+    $stmt->execute([
+        ':id_horta' => $id_horta,
+        ':nome_produtor' => htmlspecialchars($dados['nome_produtor']),
+        ':nr_cpf' => htmlspecialchars($dados['nr_cpf']),
+        ':email_produtor' => htmlspecialchars($dados['email_produtor']),
+        ':hash_senha' => password_hash($dados['senha'], PASSWORD_DEFAULT),
+        ':telefone' => htmlspecialchars($dados['telefone_produtor'] ?? '')
+    ]);
+
+    $conn->commit();
+
+    echo json_encode([
+        'status' => 'sucesso',
+        'mensagem' => 'Horta e produtor cadastrados com sucesso!',
+        'id_horta' => $id_horta,
+        'id_endereco' => $id_endereco
+    ], JSON_UNESCAPED_UNICODE);
+
+} catch (PDOException $e) {
+    $conn->rollBack();
+    send_error('Erro no banco de dados: ' . $e->getMessage(), 500);
 }
-
-echo $jsonString;
 ?>
