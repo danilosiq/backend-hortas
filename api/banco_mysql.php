@@ -1,14 +1,14 @@
 <?php
 // --- LÓGICA PARA ALTERNAR AMBIENTES ---
 
-$host = '34.28.39.39:3306'; // Valor padrão
+$host = '35.222.11.65:3306'; // Valor padrão
 
 // Verifica se o script está rodando em um servidor local ou remoto
 // Você pode mudar 'localhost' para o nome do seu host local se for diferente
 if ($_SERVER['HTTP_HOST'] == 'localhost' || $_SERVER['HTTP_HOST'] == '127.0.0.1') {
     
     // --- Configurações LOCAIS ---
-    $host = '34.28.39.39:3306';
+    $host = '35.222.11.65:3306';
     $dbname = 'hortas_db'; // Nome do banco de dados local
     $user = 'paulistinha';
     $pass = 'ç123456ç';
