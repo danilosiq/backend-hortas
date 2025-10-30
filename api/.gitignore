@@ -2,7 +2,7 @@
 node_modules/
 
 # Composer dependencies
-
+vendor/
 
 # Environment files
 .env
