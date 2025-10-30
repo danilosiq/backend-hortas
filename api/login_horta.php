@@ -16,21 +16,12 @@ function base64url_encode($data) {
     return rtrim(strtr(base64_encode($data), '+/', '-_'), '=');
 }
 
-function base64url_decode($data) {
-    $padding = 4 - (strlen($data) % 4);
-    if ($padding !== 4) $data .= str_repeat('=', $padding);
-    return base64_decode(strtr($data, '-_', '+/'));
-}
-
 function create_jwt($payload, $secret) {
     $header = ['alg' => 'HS256', 'typ' => 'JWT'];
-
     $header_encoded = base64url_encode(json_encode($header));
     $payload_encoded = base64url_encode(json_encode($payload));
-
     $signature = hash_hmac('sha256', "$header_encoded.$payload_encoded", $secret, true);
     $signature_encoded = base64url_encode($signature);
-
     return "$header_encoded.$payload_encoded.$signature_encoded";
 }
 
@@ -44,19 +35,14 @@ try {
     // Chave secreta (pode vir do .env ou definir direto aqui)
     $chave_secreta = $_ENV['JWT_SECRET_KEY'] ?? 'minha_chave_secreta';
 
-    if (is_null($chave_secreta)) {
-        error_log("JWT_SECRET_KEY não definida");
-        throw new \Exception("Erro de configuração interna do servidor.");
-    }
-
     $dados = json_decode(file_get_contents("php://input"));
 
     if (!$dados || empty($dados->email) || empty($dados->senha)) {
         http_response_code(400);
-        $resposta = array("status" => "erro", "mensagem" => "Email e senha são obrigatórios.");
+        $resposta = ["status" => "erro", "mensagem" => "Email e senha são obrigatórios."];
     } else {
         // Busca usuário no DB
-        $sql = "SELECT id_produtor, nome_produtor, hash_senha, hortas_id_hortas 
+        $sql = "SELECT id_produtor, nome_produtor, hash_senha 
                 FROM produtor 
                 WHERE email_produtor = :email LIMIT 1";
         $stmt = $conn->prepare($sql);
@@ -75,8 +61,7 @@ try {
                     'exp' => time() + 3600, // 1 hora
                     'data' => [
                         'id' => $linha['id_produtor'],
-                        'nome' => $linha['nome_produtor'],
-                        'id_horta' => $linha['hortas_id_hortas'] ?? null
+                        'nome' => $linha['nome_produtor']
                     ]
                 ];
 
