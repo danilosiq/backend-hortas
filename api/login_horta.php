@@ -5,112 +5,107 @@ header("Access-Control-Allow-Origin: *");
 header("Access-Control-Allow-Methods: POST, OPTIONS");
 header("Access-Control-Allow-Headers: Content-Type, Access-Control-Allow-Headers, Authorization, X-Requested-With");
 
-// --- CORREÇÃO 1: Lidar com requisição CORS pre-flight (OPTIONS) ---
+// Lidar com requisição CORS pre-flight (OPTIONS)
 if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
-    http_response_code(200); // Responde OK para o pre-flight
+    http_response_code(200);
     exit;
 }
-    use Firebase\JWT\JWT;
-    use Firebase\JWT\Key;
-    use Dotenv\Dotenv;
 
-$resposta = array(); // Inicializa a resposta fora do try
+// Funções auxiliares para JWT
+function base64url_encode($data) {
+    return rtrim(strtr(base64_encode($data), '+/', '-_'), '=');
+}
 
-// --- CORREÇÃO 3: Bloco try...catch genérico ---
+function base64url_decode($data) {
+    $padding = 4 - (strlen($data) % 4);
+    if ($padding !== 4) $data .= str_repeat('=', $padding);
+    return base64_decode(strtr($data, '-_', '+/'));
+}
+
+function create_jwt($payload, $secret) {
+    $header = ['alg' => 'HS256', 'typ' => 'JWT'];
+
+    $header_encoded = base64url_encode(json_encode($header));
+    $payload_encoded = base64url_encode(json_encode($payload));
+
+    $signature = hash_hmac('sha256', "$header_encoded.$payload_encoded", $secret, true);
+    $signature_encoded = base64url_encode($signature);
+
+    return "$header_encoded.$payload_encoded.$signature_encoded";
+}
+
+// Inicializa resposta
+$resposta = array();
+
 try {
-    
-    // Usa o arquivo de conexão do DB
+    // Conexão com o DB
     include "banco_mysql.php";
 
-    // Inclui o autoload do Composer para carregar a biblioteca JWT
-    // require __DIR__.'/../api/vendor/autoload.php';
-    
-    // --- Carregamento do .env ---
-    // $dotenv = Dotenv::createImmutable(__DIR__ . '/../');
-    // $dotenv->load();
-    $chave_secreta = $_ENV['JWT_SECRET_KEY'] ?? null;
+    // Chave secreta (pode vir do .env ou definir direto aqui)
+    $chave_secreta = $_ENV['JWT_SECRET_KEY'] ?? 'minha_chave_secreta';
 
-    // --- CORREÇÃO 2: Verificar se a chave secreta foi carregada ---
     if (is_null($chave_secreta)) {
-        // Loga o erro para o desenvolvedor, mas não para o usuário
-        error_log("FATAL: JWT_SECRET_KEY não está definida no arquivo .env");
-        // Lança uma exceção para ser pega pelo bloco catch
+        error_log("JWT_SECRET_KEY não definida");
         throw new \Exception("Erro de configuração interna do servidor.");
     }
 
-    // --- Processamento da Requisição ---
     $dados = json_decode(file_get_contents("php://input"));
 
     if (!$dados || empty($dados->email) || empty($dados->senha)) {
-        http_response_code(400); // Bad Request
+        http_response_code(400);
         $resposta = array("status" => "erro", "mensagem" => "Email e senha são obrigatórios.");
     } else {
-        
-        // --- Lógica de Banco de Dados ---
-        $sql = "SELECT id_produtor, nome_produtor, hash_senha, hortas_id_hortas FROM produtor WHERE email_produtor = :email LIMIT 1";
+        // Busca usuário no DB
+        $sql = "SELECT id_produtor, nome_produtor, hash_senha, hortas_id_hortas 
+                FROM produtor 
+                WHERE email_produtor = :email LIMIT 1";
         $stmt = $conn->prepare($sql);
-
-        $email = htmlspecialchars(strip_tags($dados->email));
-        $stmt->bindValue(':email', $email);
+        $stmt->bindValue(':email', htmlspecialchars(strip_tags($dados->email)));
         $stmt->execute();
 
         if ($stmt->rowCount() > 0) {
             $linha = $stmt->fetch(PDO::FETCH_ASSOC);
-            $hash_senha_banco = $linha['hash_senha'];
 
-            if (password_verify($dados->senha, $hash_senha_banco)) {
-                
-                // --- Geração do JWT ---
-                $issuer = 'localhost'; // Recomendação: Mover para .env (ex: $_ENV['APP_URL'])
-                $audience = 'localhost'; // Recomendação: Mover para .env
-                $issuedAt = time();
-                $expirationTime = $issuedAt + 3600; // Expira em 1 hora
-
+            if (password_verify($dados->senha, $linha['hash_senha'])) {
+                // Criação do payload
                 $payload = [
-                    'iss' => $issuer,
-                    'aud' => $audience,
-                    'iat' => $issuedAt,
-                    'exp' => $expirationTime,
+                    'iss' => 'localhost',
+                    'aud' => 'localhost',
+                    'iat' => time(),
+                    'exp' => time() + 3600, // 1 hora
                     'data' => [
                         'id' => $linha['id_produtor'],
                         'nome' => $linha['nome_produtor'],
-                       'id_horta' => null
+                        'id_horta' => $linha['hortas_id_hortas'] ?? null
                     ]
                 ];
 
-                $jwt = JWT::encode($payload, $chave_secreta, 'HS256');
-                
-                http_response_code(200); // OK
-                $resposta = array(
+                $jwt = create_jwt($payload, $chave_secreta);
+
+                http_response_code(200);
+                $resposta = [
                     "status" => "sucesso",
                     "mensagem" => "Login bem-sucedido.",
                     "token" => $jwt
-                );
-
+                ];
             } else {
-                http_response_code(401); // Unauthorized
-                $resposta = array("status" => "erro", "mensagem" => "Credenciais inválidas.");
+                http_response_code(401);
+                $resposta = ["status" => "erro", "mensagem" => "Credenciais inválidas."];
             }
         } else {
-            http_response_code(401); // Unauthorized
-            $resposta = array("status" => "erro", "mensagem" => "Credenciais inválidas.");
+            http_response_code(401);
+            $resposta = ["status" => "erro", "mensagem" => "Credenciais inválidas."];
         }
     }
-
 } catch (PDOException $e) {
-    // --- Captura específica para erros de Banco de Dados ---
-    http_response_code(500); // Internal Server Error
-    $resposta = array("status" => "erro", "mensagem" => "Erro no servidor (DB). Tente novamente mais tarde.");
-    error_log("PDOException: " . $e->getMessage()); // Loga o erro real para depuração
-
+    http_response_code(500);
+    $resposta = ["status" => "erro", "mensagem" => "Erro no servidor (DB). Tente novamente mais tarde."];
+    error_log("PDOException: " . $e->getMessage());
 } catch (Throwable $t) {
-    // --- Captura genérica para todos os outros erros (Dotenv, JWT, PHP, etc.) ---
-    http_response_code(500); // Internal Server Error
-    $resposta = array("status" => "erro", "mensagem" => "Erro interno no servidor.");
-    // Loga a mensagem real, o arquivo e a linha para depuração
+    http_response_code(500);
+    $resposta = ["status" => "erro", "mensagem" => "Erro interno no servidor."];
     error_log("Throwable: " . $t->getMessage() . " em " . $t->getFile() . ":" . $t->getLine());
 }
 
-// Resposta final
 echo json_encode($resposta);
 ?>
