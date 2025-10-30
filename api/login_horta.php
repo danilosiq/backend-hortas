@@ -23,11 +23,11 @@ try {
     include "banco_mysql.php";
 
     // Inclui o autoload do Composer para carregar a biblioteca JWT
-    require __DIR__.'/../api/vendor/autoload.php';
+    // require __DIR__.'/../api/vendor/autoload.php';
     
     // --- Carregamento do .env ---
-    $dotenv = Dotenv::createImmutable(__DIR__ . '/../');
-    $dotenv->load();
+    // $dotenv = Dotenv::createImmutable(__DIR__ . '/../');
+    // $dotenv->load();
     $chave_secreta = $_ENV['JWT_SECRET_KEY'] ?? null;
 
     // --- CORREÇÃO 2: Verificar se a chave secreta foi carregada ---
