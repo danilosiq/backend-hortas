@@ -74,7 +74,7 @@ try {
                     'data' => [
                         'id' => $linha['id_produtor'],
                         'nome' => $linha['nome_produtor'],
-                        'id_horta' => $linha['hortas_id_hortas']
+                       'id_horta' => null
                     ]
                 ];
 
