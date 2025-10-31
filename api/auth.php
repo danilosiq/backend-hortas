@@ -36,7 +36,7 @@ try {
 // 📩 Passo 2: Validar método e JSON recebido
 // =====================================================
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
-    send_error('Método não permitido. Apenas POST é aceito.', 405);
+    send_error('Método não permitiddo. Apenas POST é aceito.', 405);
 }
 
 $input = json_decode(file_get_contents('php://input'), true);
