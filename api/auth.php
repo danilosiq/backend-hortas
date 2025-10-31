@@ -29,7 +29,7 @@ function send_error($message, $statusCode = 500) {
 try {
     include "banco_mysql.php";
 } catch (Throwable $e) {
-    send_error("Erro ao conectar ao banco de dados.", 500);
+    send_error("Erro ao conecdtar ao banco de dados.", 500);
 }
 
 // =====================================================
