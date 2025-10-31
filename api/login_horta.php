@@ -1,7 +1,7 @@
 <?php
-// =====================================================
-// ✅ CORS - deve ser o primeiro bloco do arquivo
-// =====================================================
+// Define que a resposta vai ser um JSON
+
+
 if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
     header("Access-Control-Allow-Origin: *");
     header("Access-Control-Allow-Methods: POST, GET, OPTIONS");
@@ -14,83 +14,98 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
 header("Access-Control-Allow-Origin: *");
 header("Content-Type: application/json; charset=utf-8");
 
-// =====================================================
-// ⚠️ Função padrão para retornar erro
-// =====================================================
-function send_error($message, $statusCode = 500) {
-    http_response_code($statusCode);
-    echo json_encode(['status' => 'erro', 'mensagem' => $message]);
-    exit();
-}
-
-// =====================================================
-// 📡 Método permitido: apenas POST
-// =====================================================
-if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
-    send_error('Método não permitido. Apenas POST é aceito.', 405);
-}
-
-// =====================================================
-// 🧾 Lê o corpo JSON da requisição
-// =====================================================
-$input = json_decode(file_get_contents('php://input'), true);
-
-if (json_last_error() !== JSON_ERROR_NONE || empty($input['jwt']) || empty($input['momento'])) {
-    send_error('JSON inválido ou campos obrigatórios ausentes: jwt e momento.', 400);
-}
-
-// =====================================================
-// 🧩 Conexão com o banco
-// =====================================================
-include "banco_mysql.php";
-
-// =====================================================
-// 🔍 Verifica se o JWT existe na tabela `session`
-// =====================================================
-try {
-    $sql = "SELECT id, data_criacao, data_expiracao, produtor_id_produtor 
-            FROM session 
-            WHERE jwt_token = :jwt
-            LIMIT 1";
-
-    $stmt = $conn->prepare($sql);
-    $stmt->bindValue(':jwt', $input['jwt']);
-    $stmt->execute();
-
-    if ($stmt->rowCount() === 0) {
-        send_error('Sessão não encontrada. Faça login novamente.', 401);
-    }
-
-    $sessao = $stmt->fetch(PDO::FETCH_ASSOC);
-
-    // =====================================================
-    // ⏰ Verifica expiração
-    // =====================================================
-    $momentoAtual = strtotime($input['momento']);
-    $expiraEm = strtotime($sessao['data_expiracao']);
-
-    if ($momentoAtual > $expiraEm) {
-        send_error('Sessão expirada. Por favor, faça login novamente.', 401);
-    }
-
-    // =====================================================
-    // ✅ Sessão válida
-    // =====================================================
+// --- Lidar com requisição CORS pre-flight (OPTIONS) ---
+if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
     http_response_code(200);
-    echo json_encode([
-        'status' => 'sucesso',
-        'mensagem' => 'Sessão válida.',
-        'id_sessao' => $sessao['id'],
-        'id_produtor' => $sessao['produtor_id_produtor'],
-        'expira_em' => $sessao['data_expiracao']
-    ]);
-    exit();
+    exit;
+}
+
+$resposta = array();
+
+try {
+    include "banco_mysql.php"; // conexão
+
+    $chave_secreta = $_ENV['JWT_SECRET_KEY'] ?? 'minha_chave_super_secreta_123';
+
+    if (is_null($chave_secreta)) {
+        error_log("FATAL: JWT_SECRET_KEY não definida");
+        throw new \Exception("Erro de configuração interna do servidor.");
+    }
+
+    $dados = json_decode(file_get_contents("php://input"));
+
+    if (!$dados || empty($dados->email) || empty($dados->senha)) {
+        http_response_code(400);
+        $resposta = ["status" => "erro", "mensagem" => "Email e senha são obrigatórios."];
+    } else {
+        // --- Busca o produtor ---
+        $sql = "SELECT id_produtor, nome_produtor, hash_senha 
+                FROM produtor 
+                WHERE email_produtor = :email 
+                LIMIT 1";
+        $stmt = $conn->prepare($sql);
+        $stmt->bindValue(':email', htmlspecialchars(strip_tags($dados->email)));
+        $stmt->execute();
+
+        if ($stmt->rowCount() > 0) {
+            $linha = $stmt->fetch(PDO::FETCH_ASSOC);
+
+            if (password_verify($dados->senha, $linha['hash_senha'])) {
+                // --- Criação do JWT manualmente ---
+                $header = json_encode(['alg' => 'HS256', 'typ' => 'JWT']);
+                $issuedAt = time();
+                $expirationTime = $issuedAt + 3600; // 1 hora
+                $payload = json_encode([
+                    'iss' => 'localhost',
+                    'aud' => 'localhost',
+                    'iat' => $issuedAt,
+                    'exp' => $expirationTime,
+                    'data' => [
+                        'id' => $linha['id_produtor'],
+                        'nome' => $linha['nome_produtor']
+                    ]
+                ]);
+
+                $base64UrlHeader = rtrim(strtr(base64_encode($header), '+/', '-_'), '=');
+                $base64UrlPayload = rtrim(strtr(base64_encode($payload), '+/', '-_'), '=');
+                $signature = hash_hmac('sha256', "$base64UrlHeader.$base64UrlPayload", $chave_secreta, true);
+                $base64UrlSignature = rtrim(strtr(base64_encode($signature), '+/', '-_'), '=');
+                $jwt = "$base64UrlHeader.$base64UrlPayload.$base64UrlSignature";
+
+                // --- REGISTRAR A SESSÃO NO BANCO ---
+                $sqlSessao = "INSERT INTO session (jwt_token, data_criacao, data_expiracao, produtor_id_produtor)
+                              VALUES (:jwt, NOW(), DATE_ADD(NOW(), INTERVAL 1 HOUR), :id_produtor)";
+                $stmtSessao = $conn->prepare($sqlSessao);
+                $stmtSessao->bindValue(':jwt', $jwt);
+                $stmtSessao->bindValue(':id_produtor', $linha['id_produtor']);
+                $stmtSessao->execute();
+
+                http_response_code(200);
+                $resposta = [
+                    "status" => "sucesso",
+                    "mensagem" => "Login bem-sucedido.",
+                    "token" => $jwt,
+                    "expira_em" => date('Y-m-d H:i:s', $expirationTime)
+                ];
+            } else {
+                http_response_code(401);
+                $resposta = ["status" => "erro", "mensagem" => "Credenciais inválidas."];
+            }
+        } else {
+            http_response_code(401);
+            $resposta = ["status" => "erro", "mensagem" => "Credenciais inválidas."];
+        }
+    }
 
 } catch (PDOException $e) {
-    error_log("Erro DB: " . $e->getMessage());
-    send_error('Erro ao acessar o banco de dados.', 500);
+    http_response_code(500);
+    $resposta = ["status" => "erro", "mensagem" => "Erro no servidor (DB)."];
+    error_log("PDOException: " . $e->getMessage());
 } catch (Throwable $t) {
-    error_log("Erro geral: " . $t->getMessage());
-    send_error('Erro interno no servidor.', 500);
+    http_response_code(500);
+    $resposta = ["status" => "erro", "mensagem" => "Erro interno no servidor."];
+    error_log("Throwable: " . $t->getMessage() . " em " . $t->getFile() . ":" . $t->getLine());
 }
+
+echo json_encode($resposta);
 ?>
