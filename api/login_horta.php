@@ -1,7 +1,7 @@
 <?php
 // Define que a resposta vai ser um JSON
-
-
+// ✅ CORS - deve ser o primeiro bloco do arquivo
+// =====================================================
 if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
     header("Access-Control-Allow-Origin: *");
     header("Access-Control-Allow-Methods: POST, GET, OPTIONS");
