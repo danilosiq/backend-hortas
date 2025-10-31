@@ -45,7 +45,6 @@ if (json_last_error() !== JSON_ERROR_NONE) {
 
 $camposObrigatorios = [
     'nome_horta',
-    'cnpj',
     'rua',
     'bairro',
     'cep',
