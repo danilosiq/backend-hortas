@@ -44,7 +44,6 @@ if (json_last_error() !== JSON_ERROR_NONE) {
 }
 
 $camposObrigatorios = [
-    'id_produtor',
     'nome_horta',
     'cnpj',
     'rua',
