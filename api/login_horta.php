@@ -24,10 +24,8 @@ function send_error($msg, $code = 500) {
     exit;
 }
 
-$resposta = [];
-
 try {
-    include "banco_mysql.php"; // Conexão
+    include "banco_mysql.php"; // Conexão com o banco
 
     $chave_secreta = $_ENV['JWT_SECRET_KEY'] ?? 'minha_chave_super_secreta_123';
 
@@ -82,7 +80,7 @@ try {
     $base64UrlSignature = rtrim(strtr(base64_encode($signature), '+/', '-_'), '=');
     $jwt = "$base64UrlHeader.$base64UrlPayload.$base64UrlSignature";
 
-    // --- REGISTRAR A SESSÃO NO BANCO ---
+    // --- Registrar a sessão no banco ---
     $sqlSessao = "INSERT INTO session (jwt_token, data_criacao, data_expiracao, produtor_id_produtor)
                   VALUES (:jwt, NOW(), DATE_ADD(NOW(), INTERVAL 1 HOUR), :id_produtor)";
     $stmtSessao = $conn->prepare($sqlSessao);
@@ -90,10 +88,12 @@ try {
     $stmtSessao->bindValue(':id_produtor', $linha['id_produtor']);
     $stmtSessao->execute();
 
+    // --- Resposta de sucesso ---
     http_response_code(200);
     echo json_encode([
         "status" => "sucesso",
         "mensagem" => "Login bem-sucedido.",
+        "id" => $linha['id_produtor'],   // ✅ Retornando id_produtor
         "token" => $jwt,
         "expira_em" => date('Y-m-d H:i:s', $expirationTime)
     ]);
