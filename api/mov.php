@@ -16,7 +16,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
 // 🔧 Função de resposta padronizada
 // =====================================================
 function send_response($status, $mensagem, $extra = []) {
-    http_response_code(200); // Sempre retorna 200
+    http_response_code(200);
     echo json_encode(array_merge([
         'status' => $status,
         'mensagem' => $mensagem
@@ -28,7 +28,7 @@ function send_response($status, $mensagem, $extra = []) {
 // 🔑 Conectar ao banco
 // =====================================================
 try {
-    include "banco_mysql.php";
+    include "banco_mysql.php"; // Certifique-se que $conn é PDO
 } catch (Throwable $e) {
     send_response("erro", "Erro ao conectar ao banco de dados.");
 }
@@ -70,15 +70,18 @@ if (!$id_produtor) {
     send_response("erro", "Token inválido ou sessão não encontrada.");
 }
 
-foreach (['id_produto', 'quantidade', 'tipo'] as $campo) {
+// Campos obrigatórios
+foreach (['nome_produto', 'descricao_produto', 'unidade', 'quantidade', 'tipo'] as $campo) {
     if (!isset($dados[$campo])) {
         send_response("erro", "Campo obrigatório: $campo");
     }
 }
 
-$id_produto = (int)$dados['id_produto'];
+$nome_produto = trim($dados['nome_produto']);
+$descricao_produto = trim($dados['descricao_produto']);
+$unidade = trim($dados['unidade']); // g, kg, ton, unidade
 $quantidade = (float)$dados['quantidade'];
-$tipo = strtolower($dados['tipo']); // "entrada" ou "saida"
+$tipo = strtolower($dados['tipo']); // entrada ou saida
 $motivo = $dados['motivo'] ?? null;
 
 if (!in_array($tipo, ['entrada','saida'])) {
@@ -102,12 +105,30 @@ try {
 }
 
 // =====================================================
-// 🔄 Atualizar ou criar estoque e registrar movimentação
+// 🔄 Criar ou pegar produto, atualizar/registrar estoque e movimentação
 // =====================================================
 try {
     $conn->beginTransaction();
 
-    // Verifica estoque existente
+    // 1️⃣ Verificar se o produto já existe
+    $sqlProduto = $conn->prepare("SELECT id_produto FROM produtos WHERE nm_produto = :nome LIMIT 1");
+    $sqlProduto->bindValue(':nome', $nome_produto);
+    $sqlProduto->execute();
+
+    if ($sqlProduto->rowCount() === 0) {
+        // Cria produto
+        $sqlInsertProduto = $conn->prepare("INSERT INTO produtos (nm_produto, descricao, unidade_medida_padrao) VALUES (:nome, :descricao, :unidade)");
+        $sqlInsertProduto->bindValue(':nome', $nome_produto);
+        $sqlInsertProduto->bindValue(':descricao', $descricao_produto);
+        $sqlInsertProduto->bindValue(':unidade', $unidade);
+        $sqlInsertProduto->execute();
+        $id_produto = $conn->lastInsertId();
+    } else {
+        $produto = $sqlProduto->fetch(PDO::FETCH_ASSOC);
+        $id_produto = $produto['id_produto'];
+    }
+
+    // 2️⃣ Verificar se existe estoque da horta para o produto
     $sqlEstoque = $conn->prepare("SELECT id_estoques, ds_quantidade FROM estoques WHERE hortas_id_hortas = :id_horta AND produto_id_produto = :id_produto LIMIT 1");
     $sqlEstoque->bindValue(':id_horta', $id_horta);
     $sqlEstoque->bindValue(':id_produto', $id_produto);
@@ -134,7 +155,7 @@ try {
         $sqlUpdate->execute();
     }
 
-    // Registrar movimentação
+    // 3️⃣ Registrar movimentação
     if ($tipo === 'entrada') {
         $sqlMov = $conn->prepare("INSERT INTO entradas_estoque (estoques_id_estoques, produtor_id_produtor, quantidade, motivo) VALUES (:id_estoque, :id_produtor, :quantidade, :motivo)");
     } else {
@@ -147,7 +168,8 @@ try {
     $sqlMov->execute();
 
     $conn->commit();
-    send_response("sucesso", "Movimentação registrada com sucesso.", [
+    send_response("sucesso", "Produto/estoque/movimentação registrados com sucesso.", [
+        'id_produto' => $id_produto,
         'id_estoque' => $id_estoque,
         'nova_quantidade' => $novaQuantidade
     ]);
