@@ -1,6 +1,6 @@
 <?php
-include __DIR__ . '/../banco_mysql.php';
-include __DIR__ . '/../validador_jwt.php';
+include "banco_mysql.php";
+include "validador_jwt.php";
 
 // Função padrão de resposta
 function send_response($status, $mensagem, $extra = []) {
