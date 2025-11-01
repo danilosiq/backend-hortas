@@ -88,7 +88,7 @@ try {
     $sqlMov->execute();
 
     $conn->commit();
-    send_response("sucesso", "Movimentadção registrada com sucesso", [
+    send_response("sucesso", "Movimentadffsção registrada com sucesso", [
         'id_estoque' => $id_estoque,
         'nova_quantidade' => $novaQuantidade
     ]);
