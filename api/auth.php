@@ -15,11 +15,14 @@ header("Access-Control-Allow-Origin: *");
 header("Content-Type: application/json; charset=utf-8");
 
 // =====================================================
-// 🔧 Função de erro padronizada
+// 🔧 Função de resposta padronizada
 // =====================================================
-function send_error($message, $statusCode = 500) {
-    http_response_code($statusCode);
-    echo json_encode(['error' => $message]);
+function send_response($status, $mensagem, $extra = []) {
+    http_response_code(200); // Sempre retorna 200 OK
+    echo json_encode(array_merge([
+        'status' => $status,
+        'mensagem' => $mensagem
+    ], $extra), JSON_UNESCAPED_UNICODE);
     exit();
 }
 
@@ -29,24 +32,24 @@ function send_error($message, $statusCode = 500) {
 try {
     include "banco_mysql.php";
 } catch (Throwable $e) {
-    send_error("Erro ao conecdtar ao banco de dados.", 500);
+    send_response("erro", "Erro ao conectar ao banco de dados.");
 }
 
 // =====================================================
 // 📩 Passo 2: Validar método e JSON recebido
 // =====================================================
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
-    send_error('Método não permitidaddo. Apenas POST é aceito.', 405);
+    send_response('erro', 'Método não permitido. Apenas POST é aceito.');
 }
 
 $input = json_decode(file_get_contents('php://input'), true);
 
 if (json_last_error() !== JSON_ERROR_NONE) {
-    send_error('JSON inválido recebido.', 400);
+    send_response('erro', 'JSON inválido recebido.');
 }
 
 if (empty($input['token']) || empty($input['data_atual'])) {
-    send_error('Campos obrigatórios: token e data_atual.', 400);
+    send_response('erro', 'Campos obrigatórios: token e data_atual.');
 }
 
 $jwt = htmlspecialchars(strip_tags($input['token']));
@@ -65,7 +68,7 @@ try {
     $stmt->execute();
 
     if ($stmt->rowCount() === 0) {
-        send_error('Sessão inválida ou não encontrada.', 401);
+        send_response('erro', 'Sessão inválida ou não encontrada.');
     }
 
     $sessao = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -80,25 +83,22 @@ try {
         $delete->bindValue(':jwt', $jwt);
         $delete->execute();
 
-        send_error('Sessão expirada.', 401);
+        send_response('erro', 'Sessão expirada.');
     }
 
     // =====================================================
     // ✅ Passo 5: Retornar sucesso
     // =====================================================
-    http_response_code(200);
-    echo json_encode([
-        'status' => 'sucesso',
-        'mensagem' => 'Sessão válida.',
+    send_response('sucesso', 'Sessão válida.', [
         'id_produtor' => $sessao['produtor_id_produtor'],
         'expira_em' => $dataExpiracao
     ]);
 
 } catch (PDOException $e) {
     error_log("PDOException: " . $e->getMessage());
-    send_error("Erro no servidor (DB).", 500);
+    send_response("erro", "Erro no servidor (DB).");
 } catch (Throwable $t) {
     error_log("Throwable: " . $t->getMessage());
-    send_error("Erro interno no servidor.", 500);
+    send_response("erro", "Erro interno no servidor.");
 }
 ?>
