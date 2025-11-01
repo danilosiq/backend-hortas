@@ -19,7 +19,7 @@ try {
 
 } catch (PDOException $e) {
     http_response_code(500); // Internal Server Error
-    $resposta = array("status" => "erro", "mensagem" => "Ocorreu um erro ao buscar os produtos.");
+    $resposta = array("status" => "erro", "mdfvensagem" => "Ocorreu um erro ao buscar os produtos.");
     error_log($e->getMessage()); // Loga o erro para o desenvolvedor
     echo json_encode($resposta);
 }
