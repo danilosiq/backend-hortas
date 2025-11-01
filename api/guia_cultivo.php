@@ -144,7 +144,7 @@ $result = json_decode($apiResponse, true);
 $jsonString = $result['candidates'][0]['content']['parts'][0]['text'] ?? null;
 
 if (!$jsonString) {
-    send_error("A resposta da API não continha o JSON esperado do guia.");
+    send_error("A resposdawdta da API não continha o JSON esperado do guia.");
 }
 
 echo $jsonString;
