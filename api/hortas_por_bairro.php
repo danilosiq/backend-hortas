@@ -1,6 +1,6 @@
 <?php
 // =====================================================
-// ✅ CORS - deve ser o primeiro bloco do arquivo
+// ✅ CORS - deve ser o primeiro bloco
 // =====================================================
 if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
     header("Access-Control-Allow-Origin: *");
@@ -12,100 +12,79 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
 }
 
 header("Access-Control-Allow-Origin: *");
-header("Content-Type: application/json; charset=UTF-8");
+header("Content-Type: application/json; charset=utf-8");
 
 // =====================================================
-// 🔧 Função de resposta padronizada (nunca 4xx/5xx)
+// 🔧 Função de resposta padronizada (nunca 500, sempre 200)
 // =====================================================
-function send_response($status, $mensagem, $dados = []) {
+function send_response($status, $mensagem, $extra = []) {
     http_response_code(200);
-    echo json_encode([
+    echo json_encode(array_merge([
         'status' => $status,
-        'mensagem' => $mensagem,
-        'dados' => $dados
-    ], JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT);
+        'mensagem' => $mensagem
+    ], $extra), JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT);
     exit();
 }
 
 // =====================================================
-// 🔌 Conexão com banco
+// 🔌 Conectar ao banco (via PDO)
 // =====================================================
-include 'banco_mysql.php';
-
-if (!isset($conn) || !$conn) {
-    send_response('erro', 'Falha ao conectar ao banco de dados. Verifique a configuração.');
+try {
+    include 'banco_mysql.php'; // $conn (PDO)
+    if (!isset($conn) || !$conn) {
+        send_response("erro", "Falha na conexão com o banco de dados.");
+    }
+} catch (Throwable $e) {
+    send_response("erro", "Erro ao conectar ao banco de dados.");
 }
 
 // =====================================================
-// 📩 Validação do método e JSON
+// 📩 Validação de método e JSON recebido
 // =====================================================
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
-    send_response('erro', 'Método inválido. Utilize POST.');
+    send_response("erro", "Método inválido. Use POST.");
 }
 
-$inputData = json_decode(file_get_contents('php://input'), true);
+$input = json_decode(file_get_contents('php://input'), true);
 
 if (json_last_error() !== JSON_ERROR_NONE) {
-    send_response('erro', 'JSON inválido enviado.');
+    send_response("erro", "JSON inválido enviado.");
 }
 
-$bairro = trim($inputData['bairro'] ?? '');
+$bairro = trim($input['bairro'] ?? '');
 
-if ($bairro === '') {
-    send_response('erro', 'O campo "bairro" é obrigatório.');
+if (empty($bairro)) {
+    send_response("erro", "Campo obrigatório: bairro.");
 }
 
 // =====================================================
-// 🗂️ Busca hortas no banco
+// 🔍 Busca as hortas pelo bairro
 // =====================================================
-$sql = "SELECT 
-            h.nome, 
-            h.descricao, 
-            e.nm_rua AS endereco, 
-            e.nm_bairro AS bairro
-        FROM hortas h
-        INNER JOIN endereco_hortas e 
-            ON h.endereco_hortas_id_endereco_hortas = e.id_endereco_hortas
-        WHERE e.nm_bairro = ?
-        ORDER BY h.nome ASC";
+try {
+    $sql = "SELECT 
+                h.nome, 
+                h.descricao, 
+                e.nm_rua AS endereco, 
+                e.nm_bairro AS bairro
+            FROM hortas h
+            INNER JOIN endereco_hortas e 
+                ON h.endereco_hortas_id_endereco_hortas = e.id_endereco_hortas
+            WHERE e.nm_bairro = :bairro
+            ORDER BY h.nome ASC";
 
-$stmt = mysqli_prepare($conn, $sql);
+    $stmt = $conn->prepare($sql);
+    $stmt->bindValue(':bairro', $bairro);
+    $stmt->execute();
 
-if (!$stmt) {
-    send_response('erro', 'Erro interno ao preparar consulta SQL.');
+    $hortas = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+    send_response("sucesso", "Busca realizada com sucesso.", [
+        "bairro" => $bairro,
+        "quantidade" => count($hortas),
+        "hortas" => $hortas
+    ]);
+
+} catch (Throwable $t) {
+    send_response("erro", "Erro ao buscar hortas: " . $t->getMessage());
 }
-
-mysqli_stmt_bind_param($stmt, "s", $bairro);
-
-if (!mysqli_stmt_execute($stmt)) {
-    send_response('erro', 'Erro ao executar consulta: ' . mysqli_stmt_error($stmt));
-}
-
-$result = mysqli_stmt_get_result($stmt);
-
-$hortas = [];
-while ($row = mysqli_fetch_assoc($result)) {
-    $hortas[] = [
-        'nome' => $row['nome'],
-        'descricao' => $row['descricao'],
-        'endereco' => $row['endereco'],
-        'bairro' => $row['bairro']
-    ];
-}
-
-mysqli_stmt_close($stmt);
-mysqli_close($conn);
-
-// =====================================================
-// ✅ Retorno final (sempre 200)
-// =====================================================
-if (empty($hortas)) {
-    send_response('erro', "Nenhuma horta encontrada no bairro \"$bairro\".");
-}
-
-send_response('sucesso', "Hortas encontradas no bairro \"$bairro\".", [
-    'bairro' => $bairro,
-    'quantidade' => count($hortas),
-    'hortas' => $hortas
-]);
 ?>
