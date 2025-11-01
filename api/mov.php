@@ -1,19 +1,23 @@
 <?php
-// =====================================================
-// ✅ CORS e Headers
-// =====================================================
-header("Access-Control-Allow-Origin: *");
-header("Access-Control-Allow-Methods: POST, OPTIONS");
-header("Access-Control-Allow-Headers: Content-Type, Authorization");
-header("Content-Type: application/json; charset=utf-8");
+// api/movimentacao/post_mov.php
 
+// =====================================================
+// ✅ CORS e headers - faça isto ser o primeiro bloco
+// =====================================================
 if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
+    header("Access-Control-Allow-Origin: *");
+    header("Access-Control-Allow-Methods: POST, OPTIONS");
+    header("Access-Control-Allow-Headers: Content-Type, Authorization, X-Requested-With");
+    header("Access-Control-Max-Age: 86400");
     http_response_code(200);
     exit();
 }
 
+header("Access-Control-Allow-Origin: *");
+header("Content-Type: application/json; charset=utf-8");
+
 // =====================================================
-// 🔧 Função de resposta padronizada
+// Função para responder sempre com HTTP 200 e JSON
 // =====================================================
 function send_response($status, $mensagem, $extra = []) {
     http_response_code(200);
@@ -25,157 +29,209 @@ function send_response($status, $mensagem, $extra = []) {
 }
 
 // =====================================================
-// 🔑 Conectar ao banco
+// Conectar ao banco (ajuste include conforme seu projeto)
 // =====================================================
 try {
-    include "banco_mysql.php"; // Certifique-se que $conn é PDO
+    include __DIR__ . "/../banco_mysql.php"; // caminho relativo exemplo
+    // espera-se que $conn seja PDO instanciado no arquivo incluido
+    if (!isset($conn) || !$conn instanceof PDO) {
+        throw new Exception("Conexão PDO não encontrada ( \$conn )");
+    }
 } catch (Throwable $e) {
-    send_response("erro", "Erro ao conectar ao banco de dados.");
+    // Nunca retorne 500 — sempre 200 com status erro
+    send_response("erro", "Erro ao conectar ao banco de dados: " . $e->getMessage());
 }
 
 // =====================================================
-// 🔒 Validador JWT minimalista
+// Função minimalista para validar token via tabela session
+// retorna array com id_produtor ou null
 // =====================================================
-function validar_token_jwt() {
-    global $conn;
-    $input = json_decode(file_get_contents('php://input'), true);
-    $token = $_POST['token'] ?? $input['token'] ?? null;
-
+function validar_token_por_session(PDO $conn, ?string $token) {
     if (!$token) return null;
-
     try {
-        $stmt = $conn->prepare("SELECT produtor_id_produtor FROM session WHERE jwt_token = :jwt LIMIT 1");
+        $sql = "SELECT produtor_id_produtor, data_expiracao FROM session WHERE jwt_token = :jwt LIMIT 1";
+        $stmt = $conn->prepare($sql);
         $stmt->bindValue(':jwt', $token);
         $stmt->execute();
         if ($stmt->rowCount() === 0) return null;
-
-        $sessao = $stmt->fetch(PDO::FETCH_ASSOC);
-        return ['id_produtor' => $sessao['produtor_id_produtor']];
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        // opcional: checar expiração aqui (mas front manda data_atual, podemos pular)
+        return [
+            'id_produtor' => (int)$row['produtor_id_produtor'],
+            'data_expiracao' => $row['data_expiracao']
+        ];
     } catch (Throwable $t) {
         return null;
     }
 }
 
 // =====================================================
-// 📩 Receber JSON e validar campos
+// Recebe JSON do body
 // =====================================================
-$dados = json_decode(file_get_contents('php://input'), true);
+$input = json_decode(file_get_contents('php://input'), true);
 if (json_last_error() !== JSON_ERROR_NONE) {
-    send_response("erro", "JSON inválido.");
-}
-
-$usuario = validar_token_jwt();
-$id_produtor = $usuario['id_produtor'] ?? null;
-if (!$id_produtor) {
-    send_response("erro", "Token inválido ou sessão não encontrada.");
-}
-
-// Campos obrigatórios
-foreach (['nome_produto', 'descricao_produto', 'unidade', 'quantidade', 'tipo'] as $campo) {
-    if (!isset($dados[$campo])) {
-        send_response("erro", "Campo obrigatório: $campo");
-    }
-}
-
-$nome_produto = trim($dados['nome_produto']);
-$descricao_produto = trim($dados['descricao_produto']);
-$unidade = trim($dados['unidade']); // g, kg, ton, unidade
-$quantidade = (float)$dados['quantidade'];
-$tipo = strtolower($dados['tipo']); // entrada ou saida
-$motivo = $dados['motivo'] ?? null;
-
-if (!in_array($tipo, ['entrada','saida'])) {
-    send_response("erro", "Tipo inválido. Deve ser 'entrada' ou 'saida'.");
+    send_response("erro", "JSON inválido recebido.");
 }
 
 // =====================================================
-// 🔍 Pegar a horta do produtor
+// Campos esperados (flexível):
+// - token (obrigatório para autenticação via session table)
+// - tipo: "entrada" | "saida" (obrigatório)
+// - quantidade (number, obrigatório >0)
+// - motivo (opcional string)
+// - id_produto (opcional) OU nome_produto (+ descricao_produto + unidade) para criar/identificar
+// - data_atual (opcional; não obrigamos para validação da sessão aqui)
+// =====================================================
+
+$token = isset($input['token']) ? trim($input['token']) : null;
+$tipo = isset($input['tipo']) ? strtolower(trim($input['tipo'])) : null;
+$quantidade = isset($input['quantidade']) ? (float)$input['quantidade'] : null;
+$motivo = isset($input['motivo']) ? trim($input['motivo']) : null;
+$id_produto = isset($input['id_produto']) && $input['id_produto'] !== '' ? (int)$input['id_produto'] : null;
+
+$nome_produto = isset($input['nome_produto']) ? trim($input['nome_produto']) : null;
+$descricao_produto = isset($input['descricao_produto']) ? trim($input['descricao_produto']) : null;
+$unidade = isset($input['unidade']) ? trim($input['unidade']) : null;
+
+// validações básicas
+if (!$token) send_response("erro", "Token obrigatório.");
+if (!$tipo || !in_array($tipo, ['entrada','saida'])) send_response("erro", "Tipo inválido. Use 'entrada' ou 'saida'.");
+if (!is_numeric($quantidade) || $quantidade <= 0) send_response("erro", "Quantidade deve ser um número maior que zero.");
+
+// autentica token
+$usuario = validar_token_por_session($conn, $token);
+if (!$usuario || empty($usuario['id_produtor'])) {
+    send_response("erro", "Sessão inválida ou token não encontrado.");
+}
+$id_produtor = (int)$usuario['id_produtor'];
+
+// =====================================================
+// Obtém ID da horta do produtor (um-por-um conforme dito)
 // =====================================================
 try {
-    $sqlHorta = $conn->prepare("SELECT id_hortas FROM hortas WHERE produtor_id_produtor = :id LIMIT 1");
-    $sqlHorta->bindValue(':id', $id_produtor);
-    $sqlHorta->execute();
-    if ($sqlHorta->rowCount() === 0) {
-        send_response("erro", "Produtor não possui horta.");
+    $stmt = $conn->prepare("SELECT id_hortas FROM hortas WHERE produtor_id_produtor = :id_produtor LIMIT 1");
+    $stmt->bindValue(':id_produtor', $id_produtor, PDO::PARAM_INT);
+    $stmt->execute();
+    if ($stmt->rowCount() === 0) {
+        send_response("erro", "Produtor não possui horta vinculada.");
     }
-    $horta = $sqlHorta->fetch(PDO::FETCH_ASSOC);
-    $id_horta = $horta['id_hortas'];
+    $hortaRow = $stmt->fetch(PDO::FETCH_ASSOC);
+    $id_horta = (int)$hortaRow['id_hortas'];
 } catch (Throwable $t) {
-    send_response("erro", "Erro ao buscar horta.");
+    send_response("erro", "Erro ao buscar horta: " . $t->getMessage());
 }
 
 // =====================================================
-// 🔄 Criar ou pegar produto, atualizar/registrar estoque e movimentação
+// Lógica produto -> estoque -> movimentação
+// - se id_produto fornecido: tenta usar
+// - se id_produto não fornecido: busca por nome_produto; se não existir, cria
 // =====================================================
 try {
     $conn->beginTransaction();
 
-    // 1️⃣ Verificar se o produto já existe
-    $sqlProduto = $conn->prepare("SELECT id_produto FROM produtos WHERE nm_produto = :nome LIMIT 1");
-    $sqlProduto->bindValue(':nome', $nome_produto);
-    $sqlProduto->execute();
-
-    if ($sqlProduto->rowCount() === 0) {
-        // Cria produto
-        $sqlInsertProduto = $conn->prepare("INSERT INTO produtos (nm_produto, descricao, unidade_medida_padrao) VALUES (:nome, :descricao, :unidade)");
-        $sqlInsertProduto->bindValue(':nome', $nome_produto);
-        $sqlInsertProduto->bindValue(':descricao', $descricao_produto);
-        $sqlInsertProduto->bindValue(':unidade', $unidade);
-        $sqlInsertProduto->execute();
-        $id_produto = $conn->lastInsertId();
-    } else {
-        $produto = $sqlProduto->fetch(PDO::FETCH_ASSOC);
-        $id_produto = $produto['id_produto'];
+    // 1) resolve id_produto (cria se necessário)
+    if ($id_produto && $id_produto > 0) {
+        // certificar que produto existe
+        $p = $conn->prepare("SELECT id_produto, nm_produto FROM produtos WHERE id_produto = :id_produto LIMIT 1");
+        $p->bindValue(':id_produto', $id_produto, PDO::PARAM_INT);
+        $p->execute();
+        if ($p->rowCount() === 0) {
+            // produto não existe — vamos falhar graciosamente pedindo nome (mas não jogamos HTTP error)
+            $id_produto = null;
+        } else {
+            $prodRow = $p->fetch(PDO::FETCH_ASSOC);
+            $nome_produto = $nome_produto ?? $prodRow['nm_produto'];
+        }
     }
 
-    // 2️⃣ Verificar se existe estoque da horta para o produto
-    $sqlEstoque = $conn->prepare("SELECT id_estoques, ds_quantidade FROM estoques WHERE hortas_id_hortas = :id_horta AND produto_id_produto = :id_produto LIMIT 1");
-    $sqlEstoque->bindValue(':id_horta', $id_horta);
-    $sqlEstoque->bindValue(':id_produto', $id_produto);
-    $sqlEstoque->execute();
+    if (!$id_produto) {
+        // precisa de nome_produto mínimo para criar/identificar
+        if (!$nome_produto || mb_strlen($nome_produto) < 2) {
+            $conn->rollBack();
+            send_response("erro", "Produto não informado corretamente. Forneça id_produto ou nome_produto.");
+        }
 
-    if ($sqlEstoque->rowCount() === 0) {
-        // Cria novo estoque
-        $novaQuantidade = $tipo === 'entrada' ? $quantidade : 0;
-        $sqlInsertEstoque = $conn->prepare("INSERT INTO estoques (hortas_id_hortas, produto_id_produto, ds_quantidade) VALUES (:id_horta, :id_produto, :quantidade)");
-        $sqlInsertEstoque->bindValue(':id_horta', $id_horta);
-        $sqlInsertEstoque->bindValue(':id_produto', $id_produto);
-        $sqlInsertEstoque->bindValue(':quantidade', $novaQuantidade);
-        $sqlInsertEstoque->execute();
-        $id_estoque = $conn->lastInsertId();
-    } else {
-        // Atualiza estoque existente
-        $estoque = $sqlEstoque->fetch(PDO::FETCH_ASSOC);
-        $id_estoque = $estoque['id_estoques'];
-        $novaQuantidade = $tipo === 'entrada' ? $estoque['ds_quantidade'] + $quantidade : max(0, $estoque['ds_quantidade'] - $quantidade);
+        // procura produto por nome (case-insensitive)
+        $pFind = $conn->prepare("SELECT id_produto FROM produtos WHERE LOWER(nm_produto) = LOWER(:nome) LIMIT 1");
+        $pFind->bindValue(':nome', $nome_produto);
+        $pFind->execute();
 
-        $sqlUpdate = $conn->prepare("UPDATE estoques SET ds_quantidade = :quantidade WHERE id_estoques = :id_estoque");
-        $sqlUpdate->bindValue(':quantidade', $novaQuantidade);
-        $sqlUpdate->bindValue(':id_estoque', $id_estoque);
-        $sqlUpdate->execute();
+        if ($pFind->rowCount() > 0) {
+            $row = $pFind->fetch(PDO::FETCH_ASSOC);
+            $id_produto = (int)$row['id_produto'];
+        } else {
+            // cria produto
+            $pIns = $conn->prepare("INSERT INTO produtos (nm_produto, descricao, unidade_medida_padrao) VALUES (:nome, :descricao, :unidade)");
+            $pIns->bindValue(':nome', $nome_produto);
+            $pIns->bindValue(':descricao', $descricao_produto ?? null);
+            // valida unidade - aceita 'g','kg','ton','unidade' ou nulo
+            $allowed = ['g','kg','ton','unidade'];
+            $unitToSave = in_array($unidade, $allowed) ? $unidade : null;
+            $pIns->bindValue(':unidade', $unitToSave);
+            $pIns->execute();
+            $id_produto = (int)$conn->lastInsertId();
+        }
     }
 
-    // 3️⃣ Registrar movimentação
+    // 2) verifica se já existe um registro em estoques para esta (horta, produto)
+    $sFind = $conn->prepare("SELECT id_estoques, ds_quantidade FROM estoques WHERE hortas_id_hortas = :id_horta AND produto_id_produto = :id_produto LIMIT 1");
+    $sFind->bindValue(':id_horta', $id_horta, PDO::PARAM_INT);
+    $sFind->bindValue(':id_produto', $id_produto, PDO::PARAM_INT);
+    $sFind->execute();
+
+    if ($sFind->rowCount() === 0) {
+        // cria novo estoque com quantidade inicial dependendo do tipo
+        $initialQty = ($tipo === 'entrada') ? $quantidade : 0.0;
+        $sIns = $conn->prepare("INSERT INTO estoques (hortas_id_hortas, produto_id_produto, ds_quantidade, dt_plantio, dt_colheita, dt_validade) VALUES (:id_horta, :id_produto, :quantidade, NULL, NULL, NULL)");
+        $sIns->bindValue(':id_horta', $id_horta, PDO::PARAM_INT);
+        $sIns->bindValue(':id_produto', $id_produto, PDO::PARAM_INT);
+        $sIns->bindValue(':quantidade', $initialQty);
+        $sIns->execute();
+        $id_estoque = (int)$conn->lastInsertId();
+        $novaQuantidade = $initialQty;
+    } else {
+        // atualiza estoque existente
+        $estoqueRow = $sFind->fetch(PDO::FETCH_ASSOC);
+        $id_estoque = (int)$estoqueRow['id_estoques'];
+        $currentQty = (float)$estoqueRow['ds_quantidade'];
+        if ($tipo === 'entrada') {
+            $novaQuantidade = $currentQty + $quantidade;
+        } else {
+            $novaQuantidade = $currentQty - $quantidade;
+            if ($novaQuantidade < 0) $novaQuantidade = 0;
+        }
+        $sUpd = $conn->prepare("UPDATE estoques SET ds_quantidade = :quantidade WHERE id_estoques = :id_estoque");
+        $sUpd->bindValue(':quantidade', $novaQuantidade);
+        $sUpd->bindValue(':id_estoque', $id_estoque, PDO::PARAM_INT);
+        $sUpd->execute();
+    }
+
+    // 3) registra movimentação (entrada ou saida)
     if ($tipo === 'entrada') {
-        $sqlMov = $conn->prepare("INSERT INTO entradas_estoque (estoques_id_estoques, produtor_id_produtor, quantidade, motivo) VALUES (:id_estoque, :id_produtor, :quantidade, :motivo)");
+        $m = $conn->prepare("INSERT INTO entradas_estoque (estoques_id_estoques, produtor_id_produtor, quantidade, motivo) VALUES (:id_estoque, :id_produtor, :quantidade, :motivo)");
     } else {
-        $sqlMov = $conn->prepare("INSERT INTO saidas_estoque (estoques_id_estoques, produtor_id_produtor, quantidade, motivo) VALUES (:id_estoque, :id_produtor, :quantidade, :motivo)");
+        $m = $conn->prepare("INSERT INTO saidas_estoque (estoques_id_estoques, produtor_id_produtor, quantidade, motivo) VALUES (:id_estoque, :id_produtor, :quantidade, :motivo)");
     }
-    $sqlMov->bindValue(':id_estoque', $id_estoque);
-    $sqlMov->bindValue(':id_produtor', $id_produtor);
-    $sqlMov->bindValue(':quantidade', $quantidade);
-    $sqlMov->bindValue(':motivo', $motivo);
-    $sqlMov->execute();
+    $m->bindValue(':id_estoque', $id_estoque, PDO::PARAM_INT);
+    $m->bindValue(':id_produtor', $id_produtor, PDO::PARAM_INT);
+    $m->bindValue(':quantidade', $quantidade);
+    $m->bindValue(':motivo', $motivo ?? null);
+    $m->execute();
 
     $conn->commit();
-    send_response("sucesso", "Produto/estoque/movimentação registrados com sucesso.", [
+
+    // resposta de sucesso
+    send_response("sucesso", "Movimentação registrada com sucesso.", [
         'id_produto' => $id_produto,
+        'nome_produto' => $nome_produto,
         'id_estoque' => $id_estoque,
-        'nova_quantidade' => $novaQuantidade
+        'id_horta' => $id_horta,
+        'nova_quantidade' => $novaQuantidade,
+        'tipo' => $tipo
     ]);
 
 } catch (Throwable $t) {
-    $conn->rollBack();
+    // garante rollback e retorna erro dentro de JSON 200
+    try { $conn->rollBack(); } catch(Throwable $_){}
     send_response("erro", "Erro ao registrar movimentação: " . $t->getMessage());
 }
-?>
