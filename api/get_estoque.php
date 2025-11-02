@@ -67,5 +67,5 @@ try {
         'produtos' => $produtos
     ]]);
 } catch (Throwable $t) {
-    send_response("erro", "Erro ao buscar produtos: " . $t->getMessage());
+    send_response("erro", "Erro ao bufsescar produtos: " . $t->getMessage());
 }
