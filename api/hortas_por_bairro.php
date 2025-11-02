@@ -15,7 +15,7 @@ header("Access-Control-Allow-Origin: *");
 header("Content-Type: application/json; charset=utf-8");
 
 // =====================================================
-// 🔧 Função de resposta padronizada (nunca 500, sempre 200)
+// 🔧 Função de resposta padronizada (sempre 200)
 // =====================================================
 function send_response($status, $mensagem, $extra = []) {
     http_response_code(200);
@@ -27,10 +27,10 @@ function send_response($status, $mensagem, $extra = []) {
 }
 
 // =====================================================
-// 🔌 Conectar ao banco (via PDO)
+// 🔌 Conexão com o banco (PDO)
 // =====================================================
 try {
-    include 'banco_mysql.php'; // $conn (PDO)
+    include 'banco_mysql.php'; // define $conn
     if (!isset($conn) || !$conn) {
         send_response("erro", "Falha na conexão com o banco de dados.");
     }
@@ -39,7 +39,7 @@ try {
 }
 
 // =====================================================
-// 📩 Validação de método e JSON recebido
+// 📩 Validação do método e JSON recebido
 // =====================================================
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     send_response("erro", "Método inválido. Use POST.");
@@ -58,12 +58,14 @@ if (empty($bairro)) {
 }
 
 // =====================================================
-// 🔍 Busca as hortas pelo bairro
+// 🔍 Busca as hortas pelo bairro (com id_produtor)
 // =====================================================
 try {
     $sql = "SELECT 
+                h.id_hortas AS id_horta,
                 h.nome, 
                 h.descricao, 
+                h.produtor_id_produtor AS id_produtor,
                 e.nm_rua AS endereco, 
                 e.nm_bairro AS bairro
             FROM hortas h
