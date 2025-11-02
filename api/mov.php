@@ -32,7 +32,7 @@ function send_response($status, $mensagem, $extra = []) {
 // Conectar ao banco (ajuste include conforme seu projeto)
 // =====================================================
 try {
-    include __DIR__ . "/../banco_mysql.php"; // caminho relativo exemplo
+include __DIR__ . '/banco_mysql.php';// caminho relativo exemplo
     // espera-se que $conn seja PDO instanciado no arquivo incluido
     if (!isset($conn) || !$conn instanceof PDO) {
         throw new Exception("Conexão PDO não encontrada ( \$conn )");
