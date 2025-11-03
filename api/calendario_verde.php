@@ -31,49 +31,64 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
 }
 
 $inputData = json_decode(file_get_contents('php://input'), true);
-
 if (json_last_error() !== JSON_ERROR_NONE) {
     send_error('JSON inválido enviado.', 400);
 }
 
-if (empty($inputData['cidade']) || empty($inputData['data'])) {
-    send_error('Os campos "cidade" e "data" (dd/mm/yyyy) são obrigatórios.', 400);
+$cidade = htmlspecialchars($inputData['cidade'] ?? '');
+$data = htmlspecialchars($inputData['data'] ?? '');
+
+// Se cidade não for enviada
+if (empty($cidade)) {
+    send_error('O campo "cidade" é obrigatório.', 400);
 }
 
-$cidade = htmlspecialchars($inputData['cidade']);
-$data = htmlspecialchars($inputData['data']);
+// Se a data vier vazia, usa a data atual no formato dd-mm-yyyy
+if (empty($data)) {
+    $data = date('d-m-Y');
+} else {
+    // Valida e força o formato dd-mm-yyyy
+    $timestamp = strtotime(str_replace('/', '-', $data));
+    if ($timestamp === false) {
+        send_error('Formato de data inválido. Use dd-mm-yyyy.', 400);
+    }
+    $data = date('d-m-Y', $timestamp);
+}
 
 // =====================================================
 // 🔑 Carrega chave da API Gemini
 // =====================================================
 $geminiApiKey = getenv('chave_gemini');
-
 if (!$geminiApiKey) {
     send_error('A chave da API Gemini (chave_gemini) não foi encontrada.');
 }
 
 // =====================================================
-// 🌱 Prompt para a API
+// 🌱 Prompt dinâmico
 // =====================================================
-$userPrompt = "Você é um agrônomo e consultor agrícola.
-Com base na cidade '$cidade' e na data '$data', sugira 3 novas culturas (frutas, legumes ou ervas) ideais para plantar agora.
-Para cada cultura, explique:
-1. Motivo da sazonalidade (por que é boa época);
-2. Motivo de mercado (por que pode ter boa saída);
-3. Dica prática de cultivo.
+$userPrompt = "
+Você é um agrônomo especialista em análises sazonais e de mercado agrícola.
 
-Responda apenas com JSON válido no formato:
+Com base na cidade '$cidade' e na data '$data', analise as **tendências agrícolas atuais** e sugira **3 culturas ideais para plantar agora**.
+
+Para cada cultura, retorne:
+1. produto — nome da fruta, legume ou erva;
+2. tendencia_sazonal — motivo climático/sazonal;
+3. tendencia_mercado — motivo econômico (preço, demanda, exportação, etc.);
+4. recomendacao_pratica — dica realista de manejo e plantio.
+
+Responda apenas com JSON puro, no formato:
 {
-  \"sugestoes\": [
+  \"tendencias\": [
     {
       \"produto\": \"string\",
-      \"motivo_sazonalidade\": \"string\",
-      \"motivo_mercado\": \"string\",
-      \"dica_cultivo\": \"string\"
+      \"tendencia_sazonal\": \"string\",
+      \"tendencia_mercado\": \"string\",
+      \"recomendacao_pratica\": \"string\"
     }
   ]
 }
-Sem markdown, apenas JSON puro.";
+Sem markdown, sem texto adicional.";
 
 // =====================================================
 // 🤖 Chamada à API Gemini
