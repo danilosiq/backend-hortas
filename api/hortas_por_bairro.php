@@ -58,7 +58,7 @@ if (empty($bairro)) {
 }
 
 // =====================================================
-// 🔍 Busca as hortas pelo bairro (com id_produtor)
+// 🔍 Busca as hortas pelo bairro (apenas visíveis)
 // =====================================================
 try {
     $sql = "SELECT 
@@ -66,12 +66,14 @@ try {
                 h.nome, 
                 h.descricao, 
                 h.produtor_id_produtor AS id_produtor,
+                h.visibilidade,
                 e.nm_rua AS endereco, 
                 e.nm_bairro AS bairro
             FROM hortas h
             INNER JOIN endereco_hortas e 
                 ON h.endereco_hortas_id_endereco_hortas = e.id_endereco_hortas
             WHERE e.nm_bairro = :bairro
+              AND h.visibilidade = 1
             ORDER BY h.nome ASC";
 
     $stmt = $conn->prepare($sql);
