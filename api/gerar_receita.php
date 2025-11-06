@@ -56,6 +56,7 @@ if (empty($inputData) || !is_array($inputData)) {
 $alimentosList = [];
 $restricoesList = [];
 $adicionaisList = [];
+$id_produtor = $inputData['id_produtor'] ?? null; // <-- pode ou não vir no corpo
 
 foreach ($inputData as $item) {
     if (!empty($item['Alimentos'])) $alimentosList[] = $item['Alimentos'];
@@ -124,7 +125,7 @@ if ($httpCode !== 200 || $apiResponse === false) {
 }
 
 // =====================================================
-// ✅ Passo 5: Retorna a resposta
+// ✅ Passo 5: Retorna a resposta do Gemini
 // =====================================================
 $result = json_decode($apiResponse, true);
 $jsonString = $result['candidates'][0]['content']['parts'][0]['text'] ?? null;
@@ -133,5 +134,30 @@ if (!$jsonString) {
     send_error("A resposta da API não continha o JSON esperado da receita.");
 }
 
+// =====================================================
+// 🧮 Passo 6: Se houver id_produtor → soma +1 em receitas_geradas
+// =====================================================
+if (!empty($id_produtor)) {
+    try {
+        include 'banco_mysql.php'; // arquivo com $conn (PDO)
+
+        if ($conn) {
+            $sql = "UPDATE hortas 
+                    SET receitas_geradas = COALESCE(receitas_geradas, 0) + 1
+                    WHERE produtor_id_produtor = :id_produtor";
+
+            $stmt = $conn->prepare($sql);
+            $stmt->bindValue(':id_produtor', $id_produtor);
+            $stmt->execute();
+        }
+    } catch (Throwable $e) {
+        error_log("Erro ao atualizar receitas_geradas: " . $e->getMessage());
+        // não interrompe a resposta ao usuário
+    }
+}
+
+// =====================================================
+// 🔚 Envia resposta final ao frontend
+// =====================================================
 echo $jsonString;
 ?>
