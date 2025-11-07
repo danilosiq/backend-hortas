@@ -27,9 +27,9 @@ function send_response($success, $message, $extra = []) {
 }
 
 // =====================================================
-// 🔗 Conexão com o banco
+// 🔗 Conexão com o banco (PDO)
 // =====================================================
-include 'banco_mysql.php'; // precisa definir $conn (mysqli)
+include 'banco_mysql.php'; // deve definir $conn como PDO
 
 // =====================================================
 // 📩 Valida método e corpo JSON
@@ -64,24 +64,24 @@ $campos = [];
 $valores = [];
 
 if ($nome !== null) {
-    $campos[] = "nome = ?";
-    $valores[] = $nome;
+    $campos[] = "nome = :nome";
+    $valores[':nome'] = $nome;
 }
 if ($descricao !== null) {
-    $campos[] = "descricao = ?";
-    $valores[] = $descricao;
+    $campos[] = "descricao = :descricao";
+    $valores[':descricao'] = $descricao;
 }
 if ($endereco_id !== null) {
-    $campos[] = "endereco_hortas_id_endereco_hortas = ?";
-    $valores[] = $endereco_id;
+    $campos[] = "endereco_hortas_id_endereco_hortas = :endereco_id";
+    $valores[':endereco_id'] = $endereco_id;
 }
 if ($cnpj !== null) {
-    $campos[] = "nr_cnpj = ?";
-    $valores[] = $cnpj;
+    $campos[] = "nr_cnpj = :cnpj";
+    $valores[':cnpj'] = $cnpj;
 }
 if ($visibilidade !== null) {
-    $campos[] = "visibilidade = ?";
-    $valores[] = $visibilidade;
+    $campos[] = "visibilidade = :visibilidade";
+    $valores[':visibilidade'] = $visibilidade;
 }
 
 if (empty($campos)) {
@@ -89,24 +89,20 @@ if (empty($campos)) {
 }
 
 // =====================================================
-// 💾 Executa atualização no banco
+// 💾 Executa atualização no banco (PDO seguro)
 // =====================================================
 try {
-    $sql = "UPDATE hortas SET " . implode(", ", $campos) . " WHERE id_hortas = ?";
+    $sql = "UPDATE hortas SET " . implode(", ", $campos) . " WHERE id_hortas = :id_horta";
     $stmt = $conn->prepare($sql);
 
-    if (!$stmt) {
-        send_response(false, "Erro ao preparar statement: " . $conn->error);
+    foreach ($valores as $chave => $valor) {
+        $stmt->bindValue($chave, $valor);
     }
-
-    $tipos = str_repeat("s", count($valores)) . "i";
-    $valores[] = $id_horta;
-
-    $stmt->bind_param($tipos, ...$valores);
+    $stmt->bindValue(':id_horta', $id_horta, PDO::PARAM_INT);
 
     $success = $stmt->execute();
 
-    if ($success && $stmt->affected_rows > 0) {
+    if ($success && $stmt->rowCount() > 0) {
         send_response(true, "Horta atualizada com sucesso.");
     } else {
         send_response(false, "Nenhuma alteração realizada ou horta não encontrada.");
