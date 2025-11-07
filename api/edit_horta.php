@@ -27,17 +27,9 @@ function send_response($success, $message, $extra = []) {
 }
 
 // =====================================================
-// 🔑 Importa dependências e valida JWT
+// 🔗 Conexão com o banco
 // =====================================================
-include 'banco_mysql.php';
-include 'validador_jwt.php';
-
-$dados_usuario = validar_token_jwt();
-$id_produtor = $dados_usuario['id_produtor'] ?? null;
-
-if (!$id_produtor) {
-    send_response(false, "Token inválido ou não contém o ID do produtor.");
-}
+include 'banco_mysql.php'; // precisa definir $conn (mysqli)
 
 // =====================================================
 // 📩 Valida método e corpo JSON
@@ -100,16 +92,15 @@ if (empty($campos)) {
 // 💾 Executa atualização no banco
 // =====================================================
 try {
-    $sql = "UPDATE hortas SET " . implode(", ", $campos) . " WHERE id_hortas = ? AND produtor_id_produtor = ?";
+    $sql = "UPDATE hortas SET " . implode(", ", $campos) . " WHERE id_hortas = ?";
     $stmt = $conn->prepare($sql);
+
     if (!$stmt) {
         send_response(false, "Erro ao preparar statement: " . $conn->error);
     }
 
-    // Vincula parâmetros dinamicamente
-    $tipos = str_repeat("s", count($valores)) . "ii"; // strings + id_horta + id_produtor
+    $tipos = str_repeat("s", count($valores)) . "i";
     $valores[] = $id_horta;
-    $valores[] = $id_produtor;
 
     $stmt->bind_param($tipos, ...$valores);
 
