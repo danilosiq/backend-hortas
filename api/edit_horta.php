@@ -27,9 +27,9 @@ function send_response($success, $message, $extra = []) {
 }
 
 // =====================================================
-// 🔗 Conexão com o banco (PDO)
+// 💾 Conexão com o banco de dados (PDO)
 // =====================================================
-include 'banco_mysql.php'; // deve definir $conn como PDO
+include 'banco_mysql.php'; // Deve definir $conn (PDO)
 
 // =====================================================
 // 📩 Valida método e corpo JSON
@@ -56,6 +56,22 @@ $descricao = $input['descricao'] ?? null;
 $endereco_id = $input['endereco_hortas_id_endereco_hortas'] ?? null;
 $cnpj = $input['nr_cnpj'] ?? null;
 $visibilidade = $input['visibilidade'] ?? null;
+
+// =====================================================
+// 🔍 Valida chave estrangeira (endereço) se enviada
+// =====================================================
+if ($endereco_id !== null) {
+    try {
+        $check = $conn->prepare("SELECT COUNT(*) FROM endereco_hortas WHERE id_endereco_hortas = :id");
+        $check->bindValue(':id', $endereco_id, PDO::PARAM_INT);
+        $check->execute();
+        if ($check->fetchColumn() == 0) {
+            send_response(false, "O endereço informado não existe.");
+        }
+    } catch (Throwable $e) {
+        send_response(false, "Erro ao validar endereço: " . $e->getMessage());
+    }
+}
 
 // =====================================================
 // 🛠️ Monta SQL dinâmico conforme os campos enviados
@@ -89,20 +105,24 @@ if (empty($campos)) {
 }
 
 // =====================================================
-// 💾 Executa atualização no banco (PDO seguro)
+// 💾 Executa atualização no banco
 // =====================================================
 try {
     $sql = "UPDATE hortas SET " . implode(", ", $campos) . " WHERE id_hortas = :id_horta";
     $stmt = $conn->prepare($sql);
 
-    foreach ($valores as $chave => $valor) {
-        $stmt->bindValue($chave, $valor);
+    foreach ($valores as $campo => $valor) {
+        if ($valor === null) {
+            $stmt->bindValue($campo, null, PDO::PARAM_NULL);
+        } else {
+            $stmt->bindValue($campo, $valor);
+        }
     }
+
     $stmt->bindValue(':id_horta', $id_horta, PDO::PARAM_INT);
+    $stmt->execute();
 
-    $success = $stmt->execute();
-
-    if ($success && $stmt->rowCount() > 0) {
+    if ($stmt->rowCount() > 0) {
         send_response(true, "Horta atualizada com sucesso.");
     } else {
         send_response(false, "Nenhuma alteração realizada ou horta não encontrada.");
