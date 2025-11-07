@@ -29,7 +29,7 @@ function send_response($success, $message, $extra = []) {
 // =====================================================
 // 💾 Conexão com o banco de dados (PDO)
 // =====================================================
-include 'banco_mysql.php'; // Deve definir $conn (PDO)
+include 'banco_mysql.php'; // deve criar $conn (PDO)
 
 // =====================================================
 // 📩 Valida método e corpo JSON
@@ -53,14 +53,20 @@ if (empty($input['id_horta'])) {
 $id_horta = $input['id_horta'];
 $nome = $input['nome'] ?? null;
 $descricao = $input['descricao'] ?? null;
-$endereco_id = $input['endereco_hortas_id_endereco_hortas'] ?? null;
+$endereco_id = array_key_exists('endereco_hortas_id_endereco_hortas', $input)
+    ? $input['endereco_hortas_id_endereco_hortas']
+    : '__IGNORAR__';
 $cnpj = $input['nr_cnpj'] ?? null;
 $visibilidade = $input['visibilidade'] ?? null;
 
 // =====================================================
-// 🔍 Valida chave estrangeira (endereço) se enviada
+// 🔍 Valida chave estrangeira (somente se for número)
 // =====================================================
-if ($endereco_id !== null) {
+if ($endereco_id !== '__IGNORAR__' && $endereco_id !== null) {
+    if (!is_numeric($endereco_id)) {
+        send_response(false, "O ID de endereço precisa ser numérico ou null.");
+    }
+
     try {
         $check = $conn->prepare("SELECT COUNT(*) FROM endereco_hortas WHERE id_endereco_hortas = :id");
         $check->bindValue(':id', $endereco_id, PDO::PARAM_INT);
@@ -87,7 +93,7 @@ if ($descricao !== null) {
     $campos[] = "descricao = :descricao";
     $valores[':descricao'] = $descricao;
 }
-if ($endereco_id !== null) {
+if ($endereco_id !== '__IGNORAR__') {
     $campos[] = "endereco_hortas_id_endereco_hortas = :endereco_id";
     $valores[':endereco_id'] = $endereco_id;
 }
