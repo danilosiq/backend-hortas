@@ -1,140 +1,70 @@
 <?php
 // =====================================================
-// ✅ CORS - deve ser o primeiro bloco do arquivo
+// ✅ ATIVAÇÃO DE CORS -  permite que o front-end acesse
 // =====================================================
-if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
-    header("Access-Control-Allow-Origin: *");
-    header("Access-Control-Allow-Methods: POST, GET, OPTIONS");
-    header("Access-Control-Allow-Headers: Content-Type, Authorization");
-    header("Access-Control-Max-Age: 86400");
-    http_response_code(204);
-    exit();
-}
-
 header("Access-Control-Allow-Origin: *");
-header("Content-Type: application/json; charset=utf-8");
+header("Access-Control-Allow-Methods: POST, GET, OPTIONS");
+header("Access-Control-Allow-Headers: Content-Type, Authorization");
+header("Access-Control-Max-Age: 86400");
+header("Content-Type: application/json; charset=UTF-8");
 
 // =====================================================
-// 🔧 Função de resposta padronizada (sempre 200)
+// ✅ CONFIGURAÇÕES DO BANCO DE DADOS
 // =====================================================
-function send_response($status, $mensagem, $extra = []) {
-    echo json_encode(array_merge([
-        'status' => $status,
-        'mensagem' => $mensagem
-    ], $extra), JSON_UNESCAPED_UNICODE);
-    exit();
+
+// =====================================================
+// ✅ FUNÇÃO PARA ENVIAR RESPOSTA
+// =====================================================
+function send_response($status, $message, $data = null)
+{
+    http_response_code($status);
+    $response = ['message' => $message];
+    if ($data !== null) {
+        $response['data'] = $data;
+    }
+    echo json_encode($response);
+    exit;
 }
 
 // =====================================================
-// 🔌 Conexão com o banco
+// ✅ CONEXÃO COM O BANCO DE DADOS
 // =====================================================
 try {
-    include "banco_mysql.php";
-} catch (Throwable $e) {
-    send_response("erro", "Falha ao conectar ao banco: " . $e->getMessage());
+    include "db_connection.php";
+} catch (PDOException $e) {
+    send_response(500, "Erro de conexão com o banco de dados: " . $e->getMessage());
 }
 
 // =====================================================
-// 📥 Valida JSON recebido
+// ✅ OBTENÇÃO DAS HORTAS
 // =====================================================
-$dados = json_decode(file_get_contents('php://input'), true);
+if ($_SERVER["REQUEST_METHOD"] == "GET") {
+    $token = $_GET['token'] ?? null;
 
-if (json_last_error() !== JSON_ERROR_NONE) {
-    send_response("erro", "JSON inválido recebido.");
-}
-
-if (empty($dados['id_produtor'])) {
-    send_response("erro", "O campo 'id_produtor' é obrigatório.");
-}
-
-$id_produtor = (int)$dados['id_produtor'];
-
-// =====================================================
-// 🔍 Busca a horta do produtor (única)
-// =====================================================
-try {
-    $sql_horta = "
-        SELECT 
-            h.id_hortas,
-            h.nome AS nome_horta,
-            h.descricao,
-            h.nr_cnpj,
-            h.visibilidade,
-            h.receitas_geradas,
-            e.id_endereco_hortas,
-            e.nm_rua,
-            e.nr_cep,
-            e.nm_bairro,
-            e.nm_estado,
-            e.nm_cidade,
-            e.nm_pais
-        FROM hortas h
-        LEFT JOIN endereco_hortas e 
-            ON e.id_endereco_hortas = h.endereco_hortas_id_endereco_hortas
-        WHERE h.produtor_id_produtor = :id_produtor
-        LIMIT 1
-    ";
-
-    $stmt = $conn->prepare($sql_horta);
-    $stmt->bindValue(":id_produtor", $id_produtor, PDO::PARAM_INT);
-    $stmt->execute();
-    $horta = $stmt->fetch(PDO::FETCH_ASSOC);
-
-    if (!$horta) {
-        send_response("erro", "Nenhuma horta encontrada para este produtor.");
+    if (!$token) {
+        send_response(400, "Token não fornecido.");
     }
 
-    // =====================================================
-    // 🧺 Buscar produtos do estoque dessa horta
-    // =====================================================
-    $sql_estoque = "
-        SELECT 
-            es.id_estoques,
-            es.ds_quantidade,
-            es.dt_validade,
-            es.dt_colheita,
-            es.dt_plantio,
-            p.id_produto,
-            p.nm_produto,
-            p.descricao AS descricao_produto,
-            p.unidade_medida_padrao
-        FROM estoques es
-        LEFT JOIN produtos p 
-            ON p.id_produto = es.produto_id_produto
-        WHERE es.hortas_id_hortas = :id_horta
-    ";
+    try {
+        $stmt = $conn->prepare("SELECT produtor_id_produtor FROM session WHERE jwt_token = :token");
+        $stmt->bindParam(':token', $token);
+        $stmt->execute();
+        $user = $stmt->fetch(PDO::FETCH_ASSOC);
 
-    $stmtEstoque = $conn->prepare($sql_estoque);
-    $stmtEstoque->bindValue(":id_horta", $horta['id_hortas'], PDO::PARAM_INT);
-    $stmtEstoque->execute();
-    $estoques = $stmtEstoque->fetchAll(PDO::FETCH_ASSOC);
+        if (!$user) {
+            send_response(401, 'Token inválido ou expirado.');
+        }
 
-    // =====================================================
-    // ✅ Retorno final
-    // =====================================================
-    send_response("sucesso", "Horta encontrada com sucesso.", [
-        'horta' => [
-            'id_hortas' => $horta['id_hortas'],
-            'nome' => $horta['nome_horta'],
-            'descricao' => $horta['descricao'],
-            'cnpj' => $horta['nr_cnpj'],
-            'visibilidade' => $horta['visibilidade'],
-            'receitas_geradas' => $horta['receitas_geradas'],
-            'endereco' => [
-                'rua' => $horta['nm_rua'],
-                'bairro' => $horta['nm_bairro'],
-                'cep' => $horta['nr_cep'],
-                'cidade' => $horta['nm_cidade'],
-                'estado' => $horta['nm_estado'],
-                'pais' => $horta['nm_pais'],
-            ],
-            'estoques' => $estoques
-        ]
-    ]);
+        $id_produtor = $user['produtor_id_produtor'];
 
-} catch (PDOException $e) {
-    send_response("erro", "Erro no banco de dados: " . $e->getMessage());
-} catch (Throwable $t) {
-    send_response("erro", "Erro interno no servidor: " . $t->getMessage());
+        $sql_hortas = "SELECT id_hortas, nm_horta FROM hortas WHERE produtor_id_produtor = :produtor_id_produtor";
+        $stmt_hortas = $conn->prepare($sql_hortas);
+        $stmt_hortas->bindParam(':produtor_id_produtor', $id_produtor);
+        $stmt_hortas->execute();
+        $hortas = $stmt_hortas->fetchAll(PDO::FETCH_ASSOC);
+
+        send_response(200, "Hortas obtidas com sucesso.", $hortas);
+    } catch (PDOException $e) {
+        send_response(500, "Erro no banco de dados: " . $e->getMessage());
+    }
 }
-?>

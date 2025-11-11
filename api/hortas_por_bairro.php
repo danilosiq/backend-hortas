@@ -1,94 +1,72 @@
 <?php
 // =====================================================
-// ✅ CORS - deve ser o primeiro bloco
+// ✅ ATIVAÇÃO DE CORS E HEADERS
 // =====================================================
-if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
-    header("Access-Control-Allow-Origin: *");
-    header("Access-Control-Allow-Methods: POST, GET, OPTIONS");
-    header("Access-Control-Allow-Headers: Content-Type, Authorization");
-    header("Access-Control-Max-Age: 86400");
-    http_response_code(200);
-    exit();
-}
-
 header("Access-Control-Allow-Origin: *");
-header("Content-Type: application/json; charset=utf-8");
+header("Access-Control-Allow-Methods: GET, OPTIONS");
+header("Access-Control-Allow-Headers: Content-Type");
+header("Content-Type: application/json; charset=UTF-8");
 
-// =====================================================
-// 🔧 Função de resposta padronizada (sempre 200)
-// =====================================================
-function send_response($status, $mensagem, $extra = []) {
-    http_response_code(200);
-    echo json_encode(array_merge([
-        'status' => $status,
-        'mensagem' => $mensagem
-    ], $extra), JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT);
-    exit();
+// Trata requisições OPTIONS (pre-flight)
+if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
+    http_response_code(204);
+    exit;
 }
 
 // =====================================================
-// 🔌 Conexão com o banco (PDO)
+// ✅ FUNÇÃO DE RESPOSTA PADRONIZADA
+// =====================================================
+function send_json_error($message, $statusCode) {
+    http_response_code($statusCode);
+    echo json_encode(['error' => $message]);
+    exit;
+}
+
+// =====================================================
+// ✅ CONEXÃO COM O BANCO
 // =====================================================
 try {
-    include 'banco_mysql.php'; // define $conn
-    if (!isset($conn) || !$conn) {
-        send_response("erro", "Falha na conexão com o banco de dados.");
-    }
-} catch (Throwable $e) {
-    send_response("erro", "Erro ao conectar ao banco de dados.");
+    include 'db_connection.php'; // define $conn
+} catch (PDOException $e) {
+    send_json_error("Falha na conexão com o banco de dados.", 500);
 }
 
 // =====================================================
-// 📩 Validação do método e JSON recebido
+// ✅ LÓGICA PRINCIPAL
 // =====================================================
-if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
-    send_response("erro", "Método inválido. Use POST.");
-}
 
-$input = json_decode(file_get_contents('php://input'), true);
-
-if (json_last_error() !== JSON_ERROR_NONE) {
-    send_response("erro", "JSON inválido enviado.");
-}
-
-$bairro = trim($input['bairro'] ?? '');
-
+// Valida se o bairro foi fornecido
+$bairro = $_GET['bairro'] ?? '';
 if (empty($bairro)) {
-    send_response("erro", "Campo obrigatório: bairro.");
+    send_json_error("O parâmetro 'bairro' é obrigatório.", 400);
 }
 
-// =====================================================
-// 🔍 Busca as hortas pelo bairro (apenas visíveis)
-// =====================================================
 try {
-    $sql = "SELECT 
-                h.id_hortas AS id_horta,
-                h.nome, 
-                h.descricao, 
-                h.produtor_id_produtor AS id_produtor,
-                h.visibilidade,
-                e.nm_rua AS endereco, 
-                e.nm_bairro AS bairro
-            FROM hortas h
-            INNER JOIN endereco_hortas e 
-                ON h.endereco_hortas_id_endereco_hortas = e.id_endereco_hortas
-            WHERE e.nm_bairro = :bairro
-              AND h.visibilidade = 1
-            ORDER BY h.nome ASC";
+    // Consulta SQL para buscar hortas e seus produtores
+    $sql = "
+        SELECT
+            h.nm_horta,
+            h.cidade_horta,
+            h.bairro_horta,
+            h.local_exato_horta,
+            p.nm_produtor,
+            p.email AS email_produtor
+        FROM hortas h
+        JOIN produtor p ON h.produtor_id_produtor = p.id_produtor
+        WHERE h.bairro_horta LIKE :bairro
+    ";
 
     $stmt = $conn->prepare($sql);
-    $stmt->bindValue(':bairro', $bairro);
+    $searchTerm = '%' . $bairro . '%';
+    $stmt->bindParam(':bairro', $searchTerm, PDO::PARAM_STR);
     $stmt->execute();
 
     $hortas = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
-    send_response("sucesso", "Busca realizada com sucesso.", [
-        "bairro" => $bairro,
-        "quantidade" => count($hortas),
-        "hortas" => $hortas
-    ]);
+    // Retorna os resultados
+    http_response_code(200);
+    echo json_encode($hortas);
 
-} catch (Throwable $t) {
-    send_response("erro", "Erro ao buscar hortas: " . $t->getMessage());
+} catch (PDOException $e) {
+    send_json_error("Erro ao consultar o banco de dados: " . $e->getMessage(), 500);
 }
-?>

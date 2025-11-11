@@ -1,26 +1,27 @@
 <?php
-header("Content-Type: application/json; charset=UTF-8");
+// Permite o acesso de qualquer origem
 header("Access-Control-Allow-Origin: *");
-header("Access-Control-Allow-Methods: GET, OPTIONS");
-header("Access-Control-Allow-Headers: Content-Type, Access-Control-Allow-Headers, Authorization, X-Requested-With");
+header("Content-Type: application/json; charset=UTF-8");
 
-include "banco_mysql.php";
+// Inclui o arquivo de conexão
+include "db_connection.php";
+
+// Prepara a consulta SQL para selecionar todos os produtos
+$query = "SELECT * FROM produtos";
 
 try {
-    // Query simples para selecionar todos os produtos disponíveis no catálogo
-    $sql = "SELECT id_produto, nm_produto, descricao, unidade_medida_padrao FROM produtos ORDER BY nm_produto ASC";
-    $stmt = $conn->prepare($sql);
+    // Prepara e executa a consulta
+    $stmt = $conn->prepare($query);
     $stmt->execute();
 
-    $produtos_array = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    // Busca todos os resultados
+    $produtos = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
-    http_response_code(200);
-    echo json_encode($produtos_array);
+    // Retorna os produtos em formato JSON
+    echo json_encode($produtos);
 
-} catch (PDOException $e) {
-    http_response_code(500); // Internal Server Error
-    $resposta = array("status" => "erro", "mdfvensagem" => "Ocorreu um erro ao buscar os produtos.");
-    error_log($e->getMessage()); // Loga o erro para o desenvolvedor
-    echo json_encode($resposta);
+} catch(PDOException $e) {
+    // Em caso de erro, retorna uma mensagem de erro
+    http_response_code(500);
+    echo json_encode(array("message" => "Não foi possível buscar os produtos. Erro: " . $e->getMessage()));
 }
-?>

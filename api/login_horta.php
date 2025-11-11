@@ -1,108 +1,80 @@
 <?php
 // =====================================================
-// ✅ CORS - deve ser o primeiro bloco do arquivo
+// ✅ ATIVAÇÃO DE CORS -  permite que o front-end acesse
 // =====================================================
-if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
-    header("Access-Control-Allow-Origin: *");
-    header("Access-Control-Allow-Methods: POST, GET, OPTIONS");
-    header("Access-Control-Allow-Headers: Content-Type, Authorization, X-Requested-With");
-    header("Access-Control-Max-Age: 86400");
-    http_response_code(204);
-    exit();
-}
-
-// Headers globais
 header("Access-Control-Allow-Origin: *");
+header("Access-Control-Allow-Methods: POST, OPTIONS");
+header("Access-Control-Allow-Headers: Content-Type, Authorization");
+header("Access-Control-Max-Age: 86400");
 header("Content-Type: application/json; charset=UTF-8");
 
 // =====================================================
-// Função de erro padronizada
+// ✅ FUNÇÃO PARA ENVIAR RESPOSTA
 // =====================================================
-function send_error($msg, $code = 500) {
-    http_response_code($code);
-    echo json_encode(["status" => "erro", "mensagem" => $msg]);
+function send_response($status, $message, $data = null)
+{
+    http_response_code($status);
+    $response = ['message' => $message];
+    if ($data !== null) {
+        $response['data'] = $data;
+    }
+    echo json_encode($response);
     exit;
 }
 
+// =====================================================
+// ✅ CONEXÃO COM O BANCO DE DADOS
+// =====================================================
 try {
-    include "banco_mysql.php"; // Conexão com o banco
-
-    $chave_secreta = $_ENV['JWT_SECRET_KEY'] ?? 'minha_chave_super_secreta_123';
-
-    if (is_null($chave_secreta)) {
-        error_log("FATAL: JWT_SECRET_KEY não definida");
-        send_error("Erro de configuração interna do servidor.", 500);
-    }
-
-    $dados = json_decode(file_get_contents("php://input"));
-
-    if (!$dados || empty($dados->email) || empty($dados->senha)) {
-        send_error("Email e senha são obrigatórios.", 400);
-    }
-
-    // --- Busca o produtor ---
-    $sql = "SELECT id_produtor, nome_produtor, hash_senha 
-            FROM produtor 
-            WHERE email_produtor = :email 
-            LIMIT 1";
-    $stmt = $conn->prepare($sql);
-    $stmt->bindValue(':email', htmlspecialchars(strip_tags($dados->email)));
-    $stmt->execute();
-
-    if ($stmt->rowCount() === 0) {
-        send_error("Credenciais inválidas.", 401);
-    }
-
-    $linha = $stmt->fetch(PDO::FETCH_ASSOC);
-
-    if (!password_verify($dados->senha, $linha['hash_senha'])) {
-        send_error("Credenciais inválidas.", 401);
-    }
-
-    // --- Criação do JWT manualmente ---
-    $header = json_encode(['alg' => 'HS256', 'typ' => 'JWT']);
-    $issuedAt = time();
-    $expirationTime = $issuedAt + 3600; // 1 hora
-    $payload = json_encode([
-        'iss' => 'localhost',
-        'aud' => 'localhost',
-        'iat' => $issuedAt,
-        'exp' => $expirationTime,
-        'data' => [
-            'id' => $linha['id_produtor'],
-            'nome' => $linha['nome_produtor']
-        ]
-    ]);
-
-    $base64UrlHeader = rtrim(strtr(base64_encode($header), '+/', '-_'), '=');
-    $base64UrlPayload = rtrim(strtr(base64_encode($payload), '+/', '-_'), '=');
-    $signature = hash_hmac('sha256', "$base64UrlHeader.$base64UrlPayload", $chave_secreta, true);
-    $base64UrlSignature = rtrim(strtr(base64_encode($signature), '+/', '-_'), '=');
-    $jwt = "$base64UrlHeader.$base64UrlPayload.$base64UrlSignature";
-
-    // --- Registrar a sessão no banco ---
-    $sqlSessao = "INSERT INTO session (jwt_token, data_criacao, data_expiracao, produtor_id_produtor)
-                  VALUES (:jwt, NOW(), DATE_ADD(NOW(), INTERVAL 1 HOUR), :id_produtor)";
-    $stmtSessao = $conn->prepare($sqlSessao);
-    $stmtSessao->bindValue(':jwt', $jwt);
-    $stmtSessao->bindValue(':id_produtor', $linha['id_produtor']);
-    $stmtSessao->execute();
-
-    // --- Resposta de sucesso ---
-    http_response_code(200);
-    echo json_encode([
-        "status" => "sucesso",
-        "mensagem" => "Login bem-sucedido.",
-        "id" => $linha['id_produtor'],   // ✅ Retornando id_produtor
-        "token" => $jwt,
-        "expira_em" => date('Y-m-d H:i:s', $expirationTime)
-    ]);
-
+    include "db_connection.php"; // Conexão com o banco
 } catch (PDOException $e) {
-    error_log("PDOException: " . $e->getMessage());
-    send_error("Erro no servidor (DB).", 500);
-} catch (Throwable $t) {
-    error_log("Throwable: " . $t->getMessage());
-    send_error("Erro interno no servidor.", 500);
+    send_response(500, "Erro de conexão com o banco de dados: " . $e->getMessage());
 }
-?>
+
+// =====================================================
+// ✅ VALIDAÇÃO DE LOGIN E GERAÇÃO DE TOKEN
+// =====================================================
+if ($_SERVER['REQUEST_METHOD'] == 'POST') {
+    $data = json_decode(file_get_contents("php://input"));
+    $email = $data->email ?? null;
+    $senha = $data->senha ?? null;
+
+    if (!$email || !$senha) {
+        send_response(400, 'Email e senha são obrigatórios.');
+    }
+
+    try {
+        // Busca o produtor pelo email
+        $stmt = $conn->prepare("SELECT id_produtor, senha FROM produtor WHERE email = :email");
+        $stmt->bindParam(':email', $email);
+        $stmt->execute();
+        $user = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        // Verifica a senha
+        if ($user && password_verify($senha, $user['senha'])) {
+            // Gera um token JWT simples (sem bibliotecas externas)
+            $payload = [
+                'id_produtor' => $user['id_produtor'],
+                'exp' => time() + (24 * 3600) // Expira em 24 horas
+            ];
+            $header = json_encode(['typ' => 'JWT', 'alg' => 'HS256']);
+            $base64UrlHeader = str_replace(['+', '/', '='], ['-', '_', ''], base64_encode($header));
+            $base64UrlPayload = str_replace(['+', '/', '='], ['-', '_', ''], base64_encode(json_encode($payload)));
+            $token = $base64UrlHeader . "." . $base64UrlPayload;
+
+            // Salva a sessão no banco
+            $exp_date = date('Y-m-d H:i:s', $payload['exp']);
+            $session_stmt = $conn->prepare("INSERT INTO session (jwt_token, data_expiracao, produtor_id_produtor) VALUES (:token, :exp_date, :id_produtor)");
+            $session_stmt->bindParam(':token', $token);
+            $session_stmt->bindParam(':exp_date', $exp_date);
+            $session_stmt->bindParam(':id_produtor', $user['id_produtor']);
+            $session_stmt->execute();
+
+            send_response(200, 'Login bem-sucedido!', ['token' => $token]);
+        } else {
+            send_response(401, 'Email ou senha inválidos.');
+        }
+    } catch (PDOException $e) {
+        send_response(500, 'Erro no servidor: ' . $e->getMessage());
+    }
+}
