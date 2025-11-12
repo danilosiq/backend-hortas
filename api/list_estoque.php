@@ -1,35 +1,26 @@
 <?php
 header("Access-Control-Allow-Origin: *");
-header("Content-Type: application/json; charset=utf-8");
+header("Content-Type: application/json; charset=UTF-8");
 
-include_once 'banco_mysql.php';
-if (!$conn) die(json_encode(['status'=>'erro','mensagem'=>'Banco não conectado']));
+include_once 'db_connection.php';
 
-$input=json_decode(file_get_contents('php://input'),true);
-$id_produtor=(int)($input['id_produtor']??0);
-if(!$id_produtor) die(json_encode(['status'=>'erro','mensagem'=>'ID do produtor obrigatório']));
+try {
+    $query = "SELECT p.nm_produto, e.ds_quantidade FROM produtos p JOIN estoques e ON p.id_produto = e.produto_id_produto";
+    $stmt = $conn->prepare($query);
+    $stmt->execute();
 
-$stmt=$conn->prepare("SELECT h.id_hortas, e.id_estoques, e.produto_id_produto, p.nm_produto, e.ds_quantidade, p.unidade_medida_padrao, e.dt_plantio, e.dt_colheita
-FROM hortas h
-LEFT JOIN estoques e ON h.id_hortas=e.hortas_id_hortas
-LEFT JOIN produtos p ON e.produto_id_produto=p.id_produto
-WHERE h.produtor_id_produtor=:id");
-$stmt->bindValue(':id',$id_produtor);
-$stmt->execute();
+    $produtos = array();
+    while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
+        extract($row);
+        $produto_item = array(
+            "nome" => $nm_produto,
+            "quantidade" => $ds_quantidade
+        );
+        array_push($produtos, $produto_item);
+    }
 
-$rows=$stmt->fetchAll(PDO::FETCH_ASSOC);
-$horta=[];
-foreach($rows as $r){
-    $horta['id_horta']=$r['id_hortas'];
-    $horta['estoques'][]=[
-        'id_estoque'=>$r['id_estoques'],
-        'id_produto'=>$r['produto_id_produto'],
-        'nm_produto'=>$r['nm_produto'],
-        'quantidade'=>$r['ds_quantidade'],
-        'unidade'=>$r['unidade_medida_padrao'],
-        'dt_plantio'=>$r['dt_plantio'],
-        'dt_colheita'=>$r['dt_colheita'],
-    ];
+    echo json_encode($produtos);
+} catch (Exception $e) {
+    http_response_code(500);
+    echo json_encode(array("message" => "Internal Server Error: " . $e->getMessage()));
 }
-
-echo json_encode(['status'=>'sucesso','horta'=>$horta]);

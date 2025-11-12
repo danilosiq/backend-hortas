@@ -1,107 +1,86 @@
 <?php
 // =====================================================
-// ✅ BLOCO CORS
+// ✅ ATIVAÇÃO DE CORS -  permite que o front-end acesse
 // =====================================================
-if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
-    header("Access-Control-Allow-Origin: *");
-    header("Access-Control-Allow-Methods: POST, OPTIONS");
-    header("Access-Control-Allow-Headers: Content-Type, Authorization, X-Requested-With");
-    header("Access-Control-Max-Age: 86400");
-    http_response_code(204);
-    exit();
-}
-
 header("Access-Control-Allow-Origin: *");
-header("Content-Type: application/json; charset=UTF-8");
+header("Access-Control-Allow-Methods: POST, GET, OPTIONS, PUT");
+header("Access-Control-Allow-Headers: Content-Type, Authorization");
+header("Access-Control-Max-Age: 86400");
+header("Content-Type: application/json; charset=utf-8");
 
 // =====================================================
-// Função de resposta padronizada
+// ✅ CONFIGURAÇÕES DO BANCO DE DADOS
 // =====================================================
-function send_response($status, $mensagem, $extra = [], $code = 200) {
-    http_response_code($code);
-    echo json_encode(array_merge(['status' => $status, 'mensagem' => $mensagem], $extra), JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT);
+
+// =====================================================
+// ✅ FUNÇÃO PARA ENVIAR RESPOSTA
+// =====================================================
+function send_response($status, $message, $data = null)
+{
+    http_response_code($status);
+    $response = ['message' => $message];
+    if ($data !== null) {
+        $response['data'] = $data;
+    }
+    echo json_encode($response);
+    exit;
+}
+
+// =====================================================
+// ✅ CONEXÃO COM O BANCO DE DADOS
+// =====================================================
+try {
+    include_once 'db_connection.php';
+} catch (Throwable $e) {
+    send_response(500, "Falha na conexão com o banco.");
     exit();
 }
 
 // =====================================================
-// Conexão
+// ✅ ATUALIZAÇÃO DO ESTOQUE
 // =====================================================
-include_once 'banco_mysql.php';
-if (!$conn) send_response('erro','Banco não conectado',[],500);
+if ($_SERVER['REQUEST_METHOD'] === 'PUT') {
+    $data = json_decode(file_get_contents("php://input"));
 
-// =====================================================
-// Leitura e validação do corpo
-// =====================================================
-$input = json_decode(file_get_contents('php://input'), true);
-
-$token = trim($input['token'] ?? '');
-$id_produto = (int)($input['id_produto'] ?? 0);
-$nome_produto = trim($input['nome_produto'] ?? '');
-$descricao = trim($input['descricao_produto'] ?? '');
-$unidade = trim($input['unidade'] ?? '');
-$quantidade = isset($input['quantidade']) ? (float)$input['quantidade'] : null;
-$dt_plantio = trim($input['dt_plantio'] ?? null);
-$dt_colheita = trim($input['dt_colheita'] ?? null);
-
-if (!$token || !$id_produto) send_response('erro','Token ou id_produto inválido',[],400);
-
-// =====================================================
-// Valida token e obtém produtor
-// =====================================================
-$stmt = $conn->prepare("SELECT produtor_id_produtor FROM session WHERE jwt_token=:t LIMIT 1");
-$stmt->bindValue(':t',$token);
-$stmt->execute();
-if($stmt->rowCount()==0) send_response('erro','Token inválido',[],401);
-$id_produtor = (int)$stmt->fetchColumn();
-
-// =====================================================
-// Obtém horta
-// =====================================================
-$stmt = $conn->prepare("SELECT id_hortas FROM hortas WHERE produtor_id_produtor=:id LIMIT 1");
-$stmt->bindValue(':id',$id_produtor);
-$stmt->execute();
-if($stmt->rowCount()==0) send_response('erro','Produtor sem horta',[],404);
-$id_horta = (int)$stmt->fetchColumn();
-
-// =====================================================
-// Atualiza produto e estoque
-// =====================================================
-try{
-    $conn->beginTransaction();
-
-    // Atualiza nome/descrição/unidade na tabela produtos
-    $updProd = $conn->prepare("
-        UPDATE produtos 
-        SET nm_produto=:nome, descricao=:desc, unidade_medida_padrao=:unidade
-        WHERE id_produto=:id
-    ");
-    $updProd->bindValue(':nome',$nome_produto);
-    $updProd->bindValue(':desc',$descricao ?: null);
-    $updProd->bindValue(':unidade',$unidade ?: null);
-    $updProd->bindValue(':id',$id_produto);
-    $updProd->execute();
-
-    // Atualiza estoque se quantidade/datas fornecidas
-    if($quantidade !== null || $dt_plantio || $dt_colheita){
-        $updEstoque = $conn->prepare("
-            UPDATE estoques 
-            SET ds_quantidade = COALESCE(:q, ds_quantidade),
-                dt_plantio = COALESCE(:pl, dt_plantio),
-                dt_colheita = COALESCE(:co, dt_colheita)
-            WHERE hortas_id_hortas=:h AND produto_id_produto=:p
-        ");
-        $updEstoque->bindValue(':q',$quantidade);
-        $updEstoque->bindValue(':pl',$dt_plantio ?: null);
-        $updEstoque->bindValue(':co',$dt_colheita ?: null);
-        $updEstoque->bindValue(':h',$id_horta);
-        $updEstoque->bindValue(':p',$id_produto);
-        $updEstoque->execute();
+    if (!isset($data->id_estoque)) {
+        send_response(400, "ID do estoque não fornecido.");
+    }
+    if (!isset($data->token)) {
+        send_response(400, "Token não fornecido.");
+    }
+    if (!isset($data->nova_quantidade)) {
+        send_response(400, "Nova quantidade não fornecida.");
     }
 
-    $conn->commit();
-    send_response('sucesso','Produto atualizado com sucesso',['id_produto'=>$id_produto]);
+    $id_estoque = $data->id_estoque;
+    $token = $data->token;
+    $nova_quantidade = $data->nova_quantidade;
 
-}catch(Throwable $t){
-    $conn->rollBack();
-    send_response('erro','Erro ao atualizar produto: '.$t->getMessage(),[],500);
+    try {
+        $stmt = $conn->prepare("SELECT produtor_id_produtor FROM session WHERE jwt_token = :token");
+        $stmt->bindParam(':token', $token);
+        $stmt->execute();
+        $user = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        if (!$user) {
+            send_response(401, 'Token inválido ou expirado.');
+        }
+
+        $id_produtor = $user['produtor_id_produtor'];
+
+        // Atualizar o estoque
+        $update_stmt = $conn->prepare("UPDATE estoques SET ds_quantidade = :nova_quantidade WHERE id_estoques = :id_estoque AND hortas_id_hortas IN (SELECT id_hortas FROM hortas WHERE produtor_id_produtor = :id_produtor)");
+        $update_stmt->bindParam(':nova_quantidade', $nova_quantidade);
+        $update_stmt->bindParam(':id_estoque', $id_estoque);
+        $update_stmt->bindParam(':id_produtor', $id_produtor);
+        $update_stmt->execute();
+
+        if ($update_stmt->rowCount() > 0) {
+            send_response(200, "Estoque atualizado com sucesso.");
+        } else {
+            send_response(404, "Estoque não encontrado ou não pertence ao produtor.");
+        }
+    } catch (PDOException $e) {
+        send_response(500, "Erro no banco de dados: " . $e->getMessage());
+    }
 }

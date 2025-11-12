@@ -1,37 +1,23 @@
-# Node modules
-node_modules/
+# Composer
+/vendor/
+composer.lock
+composer.phar
 
-# Composer dependencies
-vendor/
+# PHPUnit
+/coverage-report/
+.phpunit.result.cache
 
 # Environment files
 .env
-.env.*
 
-# IDE files
-*.idea/
-*.vscode/
-*.sublime-project
-*.sublime-workspace
-
-# OS generated files
-.DS_Store
-Thumbs.db
+# Installer files
+composer-setup.php
 
 # Log files
 *.log
-
-# Build output
-/dist/
-/build/
-public/
+logs/
 
 # Temporary files
 *.tmp
-*.swp
-*.bak
-
-# PHP specific
-*.phpunit.result.cache
-.phpunit.cache/
-.cache/
+temp/
+tmp/
