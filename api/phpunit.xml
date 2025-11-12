@@ -7,8 +7,9 @@
         <env name="PHPUNIT_RUNNING" value="true"/>
     </php>
     <testsuites>
-        <testsuite name="default">
-            <directory>tests</directory>
+        <testsuite name="API Tests">
+            <file>tests/ReceitaControllerTest.php</file>
+            <file>tests/CalendarioVerdeControllerTest.php</file>
         </testsuite>
     </testsuites>
     <coverage>
