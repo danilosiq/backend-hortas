@@ -16,11 +16,14 @@ header("Access-Control-Allow-Origin: *");
 header("Content-Type: application/json; charset=UTF-8");
 
 // =====================================================
-// Função de erro padronizada
+// 🔧 Função de resposta padronizada (sempre retorna 200)
 // =====================================================
-function send_error($msg, $code = 500) {
-    http_response_code($code);
-    echo json_encode(["status" => "erro", "mensagem" => $msg]);
+function send_response($success, $msg, $extra = []) {
+    http_response_code(200);
+    echo json_encode(array_merge([
+        "status" => $success ? "sucesso" : "erro",
+        "mensagem" => $msg
+    ], $extra));
     exit;
 }
 
@@ -31,13 +34,13 @@ try {
 
     if (is_null($chave_secreta)) {
         error_log("FATAL: JWT_SECRET_KEY não definida");
-        send_error("Erro de configuração interna do servidor.", 500);
+        send_response(false, "Erro de configuração interna do servidor.");
     }
 
     $dados = json_decode(file_get_contents("php://input"));
 
     if (!$dados || empty($dados->email) || empty($dados->senha)) {
-        send_error("Email e senha são obrigatórios.", 400);
+        send_response(false, "Email e senha são obrigatórios.");
     }
 
     // --- Busca o produtor ---
@@ -50,13 +53,13 @@ try {
     $stmt->execute();
 
     if ($stmt->rowCount() === 0) {
-        send_error("Credenciais inválidas.", 401);
+        send_response(false, "Credenciais inválidas.");
     }
 
     $linha = $stmt->fetch(PDO::FETCH_ASSOC);
 
     if (!password_verify($dados->senha, $linha['hash_senha'])) {
-        send_error("Credenciais inválidas.", 401);
+        send_response(false, "Credenciais inválidas.");
     }
 
     // --- Criação do JWT manualmente ---
@@ -89,20 +92,17 @@ try {
     $stmtSessao->execute();
 
     // --- Resposta de sucesso ---
-    http_response_code(200);
-    echo json_encode([
-        "status" => "sucesso",
-        "mensagem" => "Login bem-sucedido.",
-        "id" => $linha['id_produtor'],   // ✅ Retornando id_produtor
+    send_response(true, "Login bem-sucedido.", [
+        "id" => $linha['id_produtor'],
         "token" => $jwt,
         "expira_em" => date('Y-m-d H:i:s', $expirationTime)
     ]);
 
 } catch (PDOException $e) {
     error_log("PDOException: " . $e->getMessage());
-    send_error("Erro no servidor (DB).", 500);
+    send_response(false, "Erro no servidor (DB).");
 } catch (Throwable $t) {
     error_log("Throwable: " . $t->getMessage());
-    send_error("Erro interno no servidor.", 500);
+    send_response(false, "Erro interno no servidor.");
 }
 ?>
