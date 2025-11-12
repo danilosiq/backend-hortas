@@ -1,61 +1,62 @@
 <?php
+require_once 'vendor/autoload.php';
+use Firebase\JWT\JWT;
+use Firebase\JWT\Key;
 
 class AuthController
 {
     private $conn;
+    private $secret_key;
 
     public function __construct(PDO $conn)
     {
         $this->conn = $conn;
+        $this->secret_key = getenv('JWT_SECRET_KEY');
     }
 
-    public function handleAuthRequest(array $input)
+    public function login(array $data)
     {
-        $jwt = isset($input['token']) ? htmlspecialchars(strip_tags($input['token'])) : null;
-        $dataAtual = isset($input['data_atual']) ? htmlspecialchars(strip_tags($input['data_atual'])) : date('Y-m-d H:i:s');
+        $email = $data['email'] ?? null;
+        $senha = $data['senha'] ?? null;
 
-        $id_produtor = null;
-        $dataExpiracao = null;
-
-        if ($jwt) {
-            try {
-                $sql = "SELECT data_expiracao, produtor_id_produtor
-                        FROM session
-                        WHERE jwt_token = :jwt
-                        LIMIT 1";
-                $stmt = $this->conn->prepare($sql);
-                $stmt->bindValue(':jwt', $jwt);
-                $stmt->execute();
-
-                $sessao = $stmt->fetch(PDO::FETCH_ASSOC);
-
-                if ($sessao) {
-                    $dataExpiracao = $sessao['data_expiracao'];
-                    $id_produtor = $sessao['produtor_id_produtor'];
-
-                    if (strtotime($dataAtual) > strtotime($dataExpiracao)) {
-                        $delete = $this->conn->prepare("DELETE FROM session WHERE jwt_token = :jwt");
-                        $delete->bindValue(':jwt', $jwt);
-                        $delete->execute();
-                        $id_produtor = null;
-                    }
-                }
-            } catch (Throwable $t) {
-                $id_produtor = null;
-            }
+        if (!$email || !$senha) {
+            return $this->send_response(['status' => 'erro', 'mensagem' => 'Email e senha são obrigatórios.'], 400);
         }
 
-        return $this->send_response('sucesso', 'Requisição processada.', [
-            'id_produtor' => $id_produtor,
-            'expira_em' => $dataExpiracao
-        ]);
+        $stmt = $this->conn->prepare("SELECT id_produtor, hash_senha FROM produtor WHERE email_produtor = :email");
+        $stmt->execute(['email' => $email]);
+        $user = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        if ($user && password_verify($senha, $user['hash_senha'])) {
+            $payload = [
+                'iat' => time(),
+                'exp' => time() + (60*60*24), // 24 horas
+                'data' => [
+                    'id_produtor' => $user['id_produtor'],
+                    'email' => $email
+                ]
+            ];
+            $jwt = JWT::encode($payload, $this->secret_key, 'HS256');
+
+            // Salva a sessão no banco
+            $this->save_session($user['id_produtor'], $jwt, date('Y-m-d H:i:s', $payload['exp']));
+
+            return $this->send_response(['status' => 'sucesso', 'token' => $jwt], 200);
+        } else {
+            return $this->send_response(['status' => 'erro', 'mensagem' => 'Credenciais inválidas.'], 401);
+        }
     }
 
-    private function send_response($status, $mensagem, $extra = [])
+    private function save_session($id_produtor, $token, $expiration) {
+        $stmt = $this->conn->prepare("INSERT INTO session (produtor_id_produtor, jwt_token, data_expiracao) VALUES (:id, :token, :exp)");
+        $stmt->execute(['id' => $id_produtor, 'token' => $token, 'exp' => $expiration]);
+    }
+
+    private function send_response($data, $statusCode)
     {
-        return array_merge([
-            'status' => $status,
-            'mensagem' => $mensagem
-        ], $extra);
+        return [
+            'statusCode' => $statusCode,
+            'body' => $data
+        ];
     }
 }

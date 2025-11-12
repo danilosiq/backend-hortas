@@ -3,16 +3,16 @@ use PHPUnit\Framework\TestCase;
 
 class BaseTestCase extends TestCase
 {
-    protected static $conn;
+    protected $conn;
 
-    public static function setUpBeforeClass(): void
+    protected function setUp(): void
     {
-        self::$conn = new PDO('sqlite::memory:');
-        self::$conn->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+        $this->conn = new PDO('sqlite::memory:');
+        $this->conn->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
     }
 
-    public static function tearDownAfterClass(): void
+    protected function tearDown(): void
     {
-        self::$conn = null;
+        $this->conn = null;
     }
 }

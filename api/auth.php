@@ -8,4 +8,5 @@ $dados = json_decode(file_get_contents("php://input"), true);
 $controller = new AuthController($conn);
 $response = $controller->login($dados);
 
-echo json_encode($response);
+http_response_code($response['statusCode']);
+echo json_encode($response['body']);

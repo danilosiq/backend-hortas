@@ -4,31 +4,31 @@ require_once __DIR__ . '/../MovimentacaoController.php';
 
 class AddMovTest extends BaseTestCase
 {
-    public static function setUpBeforeClass(): void
+    protected function setUp(): void
     {
-        parent::setUpBeforeClass();
+        parent::setUp();
 
-        self::$conn->exec("CREATE TABLE produtor (
+        $this->conn->exec("CREATE TABLE produtor (
             id_produtor INTEGER PRIMARY KEY AUTOINCREMENT,
             nome_produtor TEXT,
             email_produtor TEXT,
             hash_senha TEXT
         )");
 
-        self::$conn->exec("CREATE TABLE hortas (
+        $this->conn->exec("CREATE TABLE hortas (
             id_hortas INTEGER PRIMARY KEY AUTOINCREMENT,
             produtor_id_produtor INTEGER,
             nome TEXT
         )");
 
-        self::$conn->exec("CREATE TABLE produtos (
+        $this->conn->exec("CREATE TABLE produtos (
             id_produto INTEGER PRIMARY KEY AUTOINCREMENT,
             nm_produto TEXT,
             descricao TEXT,
             unidade_medida_padrao TEXT
         )");
 
-        self::$conn->exec("CREATE TABLE estoques (
+        $this->conn->exec("CREATE TABLE estoques (
             id_estoques INTEGER PRIMARY KEY AUTOINCREMENT,
             hortas_id_hortas INTEGER,
             produto_id_produto INTEGER,
@@ -37,7 +37,7 @@ class AddMovTest extends BaseTestCase
             dt_colheita DATE
         )");
 
-        self::$conn->exec("CREATE TABLE entradas_estoque (
+        $this->conn->exec("CREATE TABLE entradas_estoque (
             id_entrada INTEGER PRIMARY KEY AUTOINCREMENT,
             estoques_id_estoques INTEGER,
             produtor_id_produtor INTEGER,
@@ -47,23 +47,13 @@ class AddMovTest extends BaseTestCase
         )");
     }
 
-    protected function setUp(): void
-    {
-        self::$conn->beginTransaction();
-    }
-
-    protected function tearDown(): void
-    {
-        self::$conn->rollBack();
-    }
-
     private function createProdutorAndHorta()
     {
-        $stmt = self::$conn->prepare("INSERT INTO produtor (nome_produtor, email_produtor, hash_senha) VALUES ('Produtor Teste', 'teste@email.com', 'senha')");
+        $stmt = $this->conn->prepare("INSERT INTO produtor (nome_produtor, email_produtor, hash_senha) VALUES ('Produtor Teste', 'teste@email.com', 'senha')");
         $stmt->execute();
-        $id_produtor = self::$conn->lastInsertId();
+        $id_produtor = $this->conn->lastInsertId();
 
-        $stmt = self::$conn->prepare("INSERT INTO hortas (produtor_id_produtor, nome) VALUES (:id_produtor, 'Horta Teste')");
+        $stmt = $this->conn->prepare("INSERT INTO hortas (produtor_id_produtor, nome) VALUES (:id_produtor, 'Horta Teste')");
         $stmt->bindValue(':id_produtor', $id_produtor);
         $stmt->execute();
 
@@ -78,7 +68,7 @@ class AddMovTest extends BaseTestCase
             'quantidade' => 10.5
         ];
 
-        $controller = new MovimentacaoController(self::$conn);
+        $controller = new MovimentacaoController($this->conn);
         $response = $controller->addMov($input, $id_produtor);
 
         $this->assertEquals(200, $response['statusCode']);
@@ -93,7 +83,7 @@ class AddMovTest extends BaseTestCase
             'quantidade' => 10.5
         ];
 
-        $controller = new MovimentacaoController(self::$conn);
+        $controller = new MovimentacaoController($this->conn);
         $response = $controller->addMov($input, $id_produtor);
 
         $this->assertEquals(400, $response['statusCode']);
@@ -103,14 +93,14 @@ class AddMovTest extends BaseTestCase
     public function testAddMovNoHorta()
     {
         $id_produtor = $this->createProdutorAndHorta();
-        self::$conn->exec("DELETE FROM hortas");
+        $this->conn->exec("DELETE FROM hortas");
 
         $input = [
             'nome_produto' => 'Tomate',
             'quantidade' => 10.5
         ];
 
-        $controller = new MovimentacaoController(self::$conn);
+        $controller = new MovimentacaoController($this->conn);
         $response = $controller->addMov($input, $id_produtor);
 
         $this->assertEquals(404, $response['statusCode']);
@@ -120,13 +110,13 @@ class AddMovTest extends BaseTestCase
     public function testAddMovDatabaseError()
     {
         $id_produtor = $this->createProdutorAndHorta();
-        self::$conn->exec("DROP TABLE produtos");
+        $this->conn->exec("DROP TABLE produtos");
         $input = [
             'nome_produto' => 'Tomate',
             'quantidade' => 10.5
         ];
 
-        $controller = new MovimentacaoController(self::$conn);
+        $controller = new MovimentacaoController($this->conn);
         $response = $controller->addMov($input, $id_produtor);
 
         $this->assertEquals(500, $response['statusCode']);

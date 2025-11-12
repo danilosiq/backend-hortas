@@ -1,120 +1,109 @@
 <?php
 use PHPUnit\Framework\TestCase;
 
-require_once __DIR__ . '/../ReceitaController.php';
 require_once __DIR__ . '/../GeminiApiClient.php';
+require_once __DIR__ . '/../ReceitaController.php';
 
 class ReceitaControllerTest extends TestCase
 {
-    private $apiClientMock;
+    private $geminiClientMock;
 
     protected function setUp(): void
     {
-        // Cria um mock para o GeminiApiClient.
-        // Todos os métodos serão substituídos por stubs que retornam null por padrão.
-        $this->apiClientMock = $this->createMock(GeminiApiClient::class);
+        $this->geminiClientMock = $this->createMock(GeminiApiClient::class);
     }
 
     private function createController()
     {
-        return new ReceitaController($this->apiClientMock);
+        return new ReceitaController($this->geminiClientMock);
     }
 
     public function testGerarReceitaSuccess()
     {
-        $inputData = [
-            ['Alimentos' => 'Tomate', 'Adicionais' => 'Manjericão'],
-            ['Alimentos' => 'Queijo'],
-        ];
+        $input = ['ingredientes' => ['Tomate', 'Queijo']];
+        $expectedApiResponse = ['nome_receita' => 'Salada Caprese'];
 
-        $geminiResponse = ['body' => '{"candidates":[{"content":{"parts":[{"text":"{\"NomeDaReceita\":\"Salada Caprese\"}"}]}}]}', 'httpCode' => 200];
-
-        // Configura o mock para esperar uma chamada ao método generateContent e retornar a resposta simulada
-        $this->apiClientMock->expects($this->once())
-                            ->method('generateContent')
-                            ->willReturn($geminiResponse);
+        $this->geminiClientMock->method('generateContent')
+             ->willReturn($expectedApiResponse);
 
         $controller = $this->createController();
+        $response = $controller->gerarReceita($input);
 
-        ob_start();
-        $controller->gerarReceita($inputData);
-        $output = ob_get_clean();
-
-        $this->assertJsonStringEqualsJsonString('{"NomeDaReceita":"Salada Caprese"}', $output);
+        $this->assertEquals(200, $response['statusCode']);
+        $this->assertEquals($expectedApiResponse, $response['body']);
     }
 
     public function testGerarReceitaWithRestrictions()
     {
-        $inputData = [
-            ['Alimentos' => 'Frango', 'Restrições' => 'Sem glúten'],
-            ['Alimentos' => 'Arroz'],
+        $input = [
+            'ingredientes' => ['Frango', 'Arroz'],
+            'restricoes' => ['Glúten']
         ];
+        $expectedApiResponse = ['nome_receita' => 'Frango com Arroz (Sem Glúten)'];
 
-        $geminiResponse = ['body' => '{"candidates":[{"content":{"parts":[{"text":"{\"NomeDaReceita\":\"Frango com Arroz Sem Glúten\"}"}]}}]}', 'httpCode' => 200];
-
-        $this->apiClientMock->expects($this->once())
-                            ->method('generateContent')
-                            ->willReturn($geminiResponse);
+        $this->geminiClientMock->method('generateContent')
+             ->willReturn($expectedApiResponse);
 
         $controller = $this->createController();
+        $response = $controller->gerarReceita($input);
 
-        ob_start();
-        $controller->gerarReceita($inputData);
-        $output = ob_get_clean();
-
-        $this->assertJsonStringEqualsJsonString('{"NomeDaReceita":"Frango com Arroz Sem Glúten"}', $output);
+        $this->assertEquals(200, $response['statusCode']);
+        $this->assertEquals($expectedApiResponse, $response['body']);
     }
 
     public function testGerarReceitaWithIgnoredRestrictions()
     {
-        $inputData = [['Alimentos' => 'Peixe', 'Restrições' => 'nenhuma']];
-        $geminiResponse = ['body' => '{"candidates":[{"content":{"parts":[{"text":"{\"NomeDaReceita\":\"Peixe\"}"}]}}]}', 'httpCode' => 200];
-        $this->apiClientMock->method('generateContent')->willReturn($geminiResponse);
+        $input = [
+            'ingredientes' => ['Frango', 'Pão'],
+            'restricoes' => ['Pão'],
+            'ignorarRestricoes' => true
+        ];
+        $expectedApiResponse = ['nome_receita' => 'Sanduíche de Frango'];
+
+        $this->geminiClientMock->method('generateContent')
+            ->willReturn($expectedApiResponse);
+
         $controller = $this->createController();
-        ob_start();
-        $controller->gerarReceita($inputData);
-        $output = ob_get_clean();
-        $this->assertJsonStringEqualsJsonString('{"NomeDaReceita":"Peixe"}', $output);
+        $response = $controller->gerarReceita($input);
+
+        $this->assertEquals(200, $response['statusCode']);
+        $this->assertEquals($expectedApiResponse, $response['body']);
     }
 
-    public function testInvalidInput()
+    public function testGerarReceitaNoIngredients()
     {
+        $input = ['ingredientes' => []];
+
         $controller = $this->createController();
-        $response = $controller->gerarReceita(null);
-        $this->assertEquals(['error' => 'Dados de entrada inválidos. Esperava-se um array de itens.'], $response);
+        $response = $controller->gerarReceita($input);
+
+        $this->assertEquals(400, $response['statusCode']);
+        $this->assertEquals(['status' => 'erro', 'mensagem' => 'Nenhum ingrediente fornecido.'], $response['body']);
     }
 
-    public function testEmptyFoodList()
+    public function testGerarReceitaMatchingIngredientsAndRestrictions()
     {
+        $input = [
+            'ingredientes' => ['Tomate', 'Queijo'],
+            'restricoes' => ['Queijo']
+        ];
+
         $controller = $this->createController();
-        $response = $controller->gerarReceita([['Alimentos' => '']]);
-        $this->assertEquals(['error' => 'A lista de alimentos não pode estar vazia.'], $response);
+        $response = $controller->gerarReceita($input);
+
+        $this->assertEquals(400, $response['statusCode']);
+        $this->assertEquals(['status' => 'erro', 'mensagem' => 'Ingredientes e restrições não podem ser os mesmos.'], $response['body']);
     }
 
-    public function testGeminiApiHttpError()
+    public function testApiCommunicationError()
     {
-        $geminiResponse = ['body' => 'Internal Server Error', 'httpCode' => 500];
-        $this->apiClientMock->method('generateContent')->willReturn($geminiResponse);
-        $controller = $this->createController();
-        $response = $controller->gerarReceita([['Alimentos' => 'Tomate']]);
-        $this->assertEquals(['error' => 'Erro ao comunicar com a API Gemini. Código HTTP: 500'], $response);
-    }
+        $this->geminiClientMock->method('generateContent')
+            ->will($this->throwException(new Exception('Erro de API')));
 
-    public function testGeminiApiCurlError()
-    {
-        $geminiResponse = ['body' => false, 'httpCode' => 500];
-        $this->apiClientMock->method('generateContent')->willReturn($geminiResponse);
         $controller = $this->createController();
-        $response = $controller->gerarReceita([['Alimentos' => 'Tomate']]);
-        $this->assertEquals(['error' => 'Erro ao comunicar com a API Gemini. Código HTTP: 500'], $response);
-    }
+        $response = $controller->gerarReceita(['ingredientes' => ['Cebola']]);
 
-    public function testEmptyGeminiApiResponse()
-    {
-        $geminiResponse = ['body' => json_encode([]), 'httpCode' => 200];
-        $this->apiClientMock->method('generateContent')->willReturn($geminiResponse);
-        $controller = $this->createController();
-        $response = $controller->gerarReceita([['Alimentos' => 'Tomate']]);
-        $this->assertEquals(['error' => 'A resposta da API não continha o JSON esperado da receita.'], $response);
+        $this->assertEquals(500, $response['statusCode']);
+        $this->assertEquals(['status' => 'erro', 'mensagem' => 'Erro ao gerar receita: Erro de API'], $response['body']);
     }
 }
