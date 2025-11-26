@@ -96,7 +96,7 @@ $userPrompt .= " A resposta deve ser um JSON único e bem formatado contendo nom
 // =====================================================
 // 🤖 Passo 4: Chama API Gemini
 // =====================================================
-$apiUrl = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent?key=" . $geminiApiKey;
+$apiUrl = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=" . $geminiApiKey;
 
 $recipeSchema = [
     'type' => 'OBJECT',
