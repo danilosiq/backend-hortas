@@ -30,7 +30,7 @@ $env_var_name = 'chave_gemini';
 $geminiApiKey = getenv($env_var_name);
 
 if (!$geminiApiKey) {
-    send_error("A chave da API do Gemini ('$env_var_name') não foi encontrada.");
+    send_error("A chave dadd API do Gemini ('$env_var_name') não foi encontrada.");
 }
 
 // =====================================================
