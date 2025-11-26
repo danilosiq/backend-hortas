@@ -90,7 +90,7 @@ Sem markdown, apenas JSON puro.";
 // =====================================================
 // 🤖 Chamada à API Gemini
 // =====================================================
-$apiUrl = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-preview-09-2025:generateContent?key=" . $geminiApiKey;
+$apiUrl = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=SUA_API_KEY" . $geminiApiKey;
 
 $payload = json_encode([
     'contents' => [['parts' => [['text' => $userPrompt]]]],
