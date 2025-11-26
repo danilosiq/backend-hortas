@@ -1,11 +1,11 @@
 <?php
 // =====================================================
-// ✅ CORS + Preflight (antes de qualquer saída)
+// ✅ CORS - deve ser o primeiro bloco do arquivo
 // =====================================================
 if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
     header("Access-Control-Allow-Origin: *");
     header("Access-Control-Allow-Methods: POST, GET, OPTIONS");
-    header("Access-Control-Allow-Headers: Content-Type, Authorization, X-Requested-With");
+    header("Access-Control-Allow-Headers: Content-Type, Authorization");
     header("Access-Control-Max-Age: 86400");
     http_response_code(204);
     exit();
@@ -13,86 +13,167 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
 
 header("Access-Control-Allow-Origin: *");
 header("Content-Type: application/json; charset=utf-8");
-header("Access-Control-Allow-Methods: POST, OPTIONS");
-header("Access-Control-Allow-Headers: Content-Type, Authorization, X-Requested-With");
 
 // =====================================================
-// ✅ Função de resposta padrão
+// 🔧 Função padrão de erro
 // =====================================================
-function send_response($status, $mensagem, $extra = []) {
-    echo json_encode(
-        array_merge(['status' => $status, 'mensagem' => $mensagem], $extra),
-        JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT
-    );
+function send_error($message, $statusCode = 500) {
+    http_response_code($statusCode);
+    echo json_encode(['error' => $message]);
     exit();
 }
 
 // =====================================================
-// ✅ Inclui conexão PDO (banco_mysql.php)
+// 🔑 Passo 1: Variável de ambiente
 // =====================================================
-$conn = null;
-$candidates = [
-    __DIR__ . '/banco_mysql.php',
-    __DIR__ . '/../banco_mysql.php'
+$env_var_name = 'chave_gemini';
+$geminiApiKey = getenv($env_var_name);
+
+if (!$geminiApiKey) {
+    send_error("A chave da API do Gemini ('$env_var_name') não foi encontrada no ambiente do servidor.");
+}
+
+// =====================================================
+// 📩 Passo 2: Recebe e valida POST
+// =====================================================
+if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+    send_error('Método não permitido. Apenas requisições POST são aceitas.', 405);
+}
+
+$inputData = json_decode(file_get_contents('php://input'), true);
+
+if (json_last_error() !== JSON_ERROR_NONE) {
+    send_error('JSON inválido recebido do frontend.', 400);
+}
+
+if (empty($inputData)) {
+    send_error('Dados de entrada inválidos.', 400);
+}
+
+// =====================================================
+// 🆕 NOVO: Adaptar automaticamente se for UM ÚNICO OBJETO
+// =====================================================
+if (isset($inputData['Alimentos']) || isset($inputData['Restrições']) || isset($inputData['Adicionais'])) {
+    $id_produtor = isset($inputData['id_produtor']) ? $inputData['id_produtor'] : null;
+
+    // Converte para o formato interno esperado
+    $inputData = [
+        [
+            "Alimentos" => $inputData["Alimentos"] ?? "",
+            "Restrições" => $inputData["Restrições"] ?? "",
+            "Adicionais" => $inputData["Adicionais"] ?? ""
+        ]
+    ];
+} else {
+    $id_produtor = $inputData['id_produtor'] ?? null;
+}
+
+// =====================================================
+// 🍽️ Passo 3: Monta prompt para Gemini
+// =====================================================
+$alimentosList = [];
+$restricoesList = [];
+$adicionaisList = [];
+
+foreach ($inputData as $item) {
+    if (!empty($item['Alimentos'])) $alimentosList[] = $item['Alimentos'];
+    if (!empty($item['Restrições']) && strtolower($item['Restrições']) !== 'nenhuma')
+        $restricoesList[] = $item['Restrições'];
+    if (!empty($item['Adicionais'])) $adicionaisList[] = $item['Adicionais'];
+}
+
+if (empty($alimentosList)) {
+    send_error('A lista de alimentos não pode estar vazia.', 400);
+}
+
+$userPrompt = "Crie uma receita detalhada em português que utilize principalmente os seguintes ingredientes: " . implode(', ', $alimentosList) . ".";
+if (!empty($restricoesList))
+    $userPrompt .= " Leve em consideração as seguintes restrições: " . implode(', ', array_unique($restricoesList)) . ".";
+if (!empty($adicionaisList))
+    $userPrompt .= " Considere também estas notas: " . implode(', ', array_unique($adicionaisList)) . ".";
+$userPrompt .= " A resposta deve ser um JSON único e bem formatado contendo nome, descrição, ingredientes, instruções, tempo de preparo, porções e tabela nutricional estimada.";
+
+// =====================================================
+// 🤖 Passo 4: Chama API Gemini
+// =====================================================
+$apiUrl = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent?key=" . $geminiApiKey;
+
+$recipeSchema = [
+    'type' => 'OBJECT',
+    'properties' => [
+        'NomeDaReceita' => ['type' => 'STRING'],
+        'Descricao' => ['type' => 'STRING'],
+        'Ingredientes' => ['type' => 'ARRAY', 'items' => ['type' => 'STRING']],
+        'Instrucoes' => ['type' => 'ARRAY', 'items' => ['type' => 'STRING']],
+        'TempoDePreparo' => ['type' => 'STRING'],
+        'Porcoes' => ['type' => 'STRING'],
+        'TabelaNutricional' => [
+            'type' => 'OBJECT',
+            'properties' => [
+                'Calorias' => ['type' => 'STRING'],
+                'Carboidratos' => ['type' => 'STRING'],
+                'Proteinas' => ['type' => 'STRING'],
+                'Gorduras' => ['type' => 'STRING']
+            ]
+        ]
+    ]
 ];
-foreach ($candidates as $path) {
-    if (file_exists($path) && is_readable($path)) {
-        include_once $path;
-        if (isset($conn) && $conn instanceof PDO) break;
+
+$payload = json_encode([
+    'contents' => [['parts' => [['text' => $userPrompt]]]],
+    'generationConfig' => [
+        'responseMimeType' => "application/json",
+        'responseSchema' => $recipeSchema,
+    ],
+]);
+
+$ch = curl_init($apiUrl);
+curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+curl_setopt($ch, CURLOPT_HTTPHEADER, ['Content-Type: application/json']);
+curl_setopt($ch, CURLOPT_POST, true);
+curl_setopt($ch, CURLOPT_POSTFIELDS, $payload);
+$apiResponse = curl_exec($ch);
+$httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+curl_close($ch);
+
+if ($httpCode !== 200 || $apiResponse === false) {
+    error_log("Erro na API Gemini: " . $apiResponse);
+    send_error("Erro ao comunicar com a API Gemini. Código HTTP: $httpCode", $httpCode);
+}
+
+// =====================================================
+// ✅ Passo 5: Retorna a resposta do Gemini
+// =====================================================
+$result = json_decode($apiResponse, true);
+$jsonString = $result['candidates'][0]['content']['parts'][0]['text'] ?? null;
+
+if (!$jsonString) {
+    send_error("A resposta da API não continha o JSON esperado da receita.");
+}
+
+// =====================================================
+// 🧮 Passo 6: Se houver id_produtor → soma +1 em receitas_geradas
+// =====================================================
+if (!empty($id_produtor)) {
+    try {
+        include 'banco_mysql.php';
+
+        if ($conn) {
+            $sql = "UPDATE hortas 
+                    SET receitas_geradas = COALESCE(receitas_geradas, 0) + 1
+                    WHERE produtor_id_produtor = :id_produtor";
+
+            $stmt = $conn->prepare($sql);
+            $stmt->bindValue(':id_produtor', $id_produtor);
+            $stmt->execute();
+        }
+    } catch (Throwable $e) {
+        error_log("Erro ao atualizar receitas_geradas: " . $e->getMessage());
     }
 }
-if (!$conn) send_response("erro", "Conexão PDO não encontrada.");
 
 // =====================================================
-// ✅ Lê JSON do body
+// 🔚 Envia resposta final ao frontend
 // =====================================================
-$input = json_decode(file_get_contents('php://input'), true);
-$id_produtor = isset($input['id_produtor']) ? (int)$input['id_produtor'] : null;
-if (!$id_produtor) send_response("erro", "id_produtor obrigatório.");
-
-// =====================================================
-// ✅ Busca horta do produtor
-// =====================================================
-try {
-    $stmt = $conn->prepare("SELECT id_hortas FROM hortas WHERE produtor_id_produtor = :id_produtor LIMIT 1");
-    $stmt->bindValue(':id_produtor', $id_produtor, PDO::PARAM_INT);
-    $stmt->execute();
-    if ($stmt->rowCount() === 0) send_response("erro", "Produtor não possui horta.");
-
-    $id_horta = (int)$stmt->fetch(PDO::FETCH_ASSOC)['id_hortas'];
-} catch (Throwable $t) {
-    send_response("erro", "Erro ao buscar horta: " . $t->getMessage());
-}
-
-// =====================================================
-// ✅ Busca produtos e estoque da horta
-// =====================================================
-try {
-    $stmt = $conn->prepare("
-        SELECT 
-            e.id_estoques,
-            p.id_produto,
-            p.nm_produto,
-            p.descricao,
-            p.unidade_medida_padrao,
-            e.ds_quantidade,
-            e.dt_plantio,
-            e.dt_colheita
-        FROM estoques e
-        JOIN produtos p ON e.produto_id_produto = p.id_produto
-        WHERE e.hortas_id_hortas = :id_horta
-        ORDER BY p.nm_produto ASC
-    ");
-    $stmt->bindValue(':id_horta', $id_horta, PDO::PARAM_INT);
-    $stmt->execute();
-    $produtos = $stmt->fetchAll(PDO::FETCH_ASSOC);
-
-    send_response("sucesso", "Produtos da horta carregados.", [
-        'horta' => [
-            'id_horta' => $id_horta,
-            'produtos' => $produtos
-        ]
-    ]);
-} catch (Throwable $t) {
-    send_response("erro", "Erro ao buscar produtos: " . $t->getMessage());
-}
+echo $jsonString;
+?>
