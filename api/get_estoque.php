@@ -83,7 +83,7 @@ foreach ($inputData as $item) {
 }
 
 if (empty($alimentosList)) {
-    send_error('A lista de alimentos não pode estar vazia.', 400);
+    send_error('A lista de alimentos não pode estar vazia', 400);
 }
 
 $userPrompt = "Crie uma receita detalhada em português que utilize principalmente os seguintes ingredientes: " . implode(', ', $alimentosList) . ".";
