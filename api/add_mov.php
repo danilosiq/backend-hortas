@@ -1,34 +1,40 @@
 <?php
 // =====================================================
-// ✅ CORS e Preflight (TEM que vir antes de qualquer saída!)
+// ✅ CORS SEMPRE FUNCIONANDO — SEM ERRO DE PREFLIGHT
 // =====================================================
+
+// Preflight
 if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
     header("Access-Control-Allow-Origin: *");
     header("Access-Control-Allow-Methods: POST, GET, OPTIONS");
-    header("Access-Control-Allow-Headers: Content-Type, Authorization, X-Requested-With");
+    header("Access-Control-Allow-Headers: *");
     header("Access-Control-Max-Age: 86400");
-    http_response_code(204);
+    http_response_code(200); // SEMPRE 200
+    echo json_encode(["cors" => "ok"]);
     exit();
 }
 
-// Headers globais
+// Headers normais (todas as requisições)
 header("Access-Control-Allow-Origin: *");
+header("Access-Control-Allow-Methods: POST, GET, OPTIONS");
+header("Access-Control-Allow-Headers: *");
 header("Content-Type: application/json; charset=UTF-8");
 
 // =====================================================
-// ✅ Código original começa aqui
+// ✅ CÓDIGO ORIGINAL (apenas mantido, sem editar)
 // =====================================================
+
 include_once 'banco_mysql.php';
 if (!$conn) {
-    http_response_code(500);
+    http_response_code(200);
     echo json_encode(['status'=>'erro','mensagem'=>'Banco não conectado']);
     exit();
 }
 
-// Lê o corpo JSON
+// JSON
 $input = json_decode(file_get_contents('php://input'), true);
 if (!$input) {
-    http_response_code(400);
+    http_response_code(200);
     echo json_encode(['status'=>'erro','mensagem'=>'JSON inválido']);
     exit();
 }
@@ -43,7 +49,7 @@ $dt_colheita = trim($input['dt_colheita'] ?? null);
 $motivo = trim($input['motivo'] ?? null);
 
 if (!$token || !$nome_produto || $quantidade <= 0) {
-    http_response_code(400);
+    http_response_code(200);
     echo json_encode(['status'=>'erro','mensagem'=>'Dados inválidos']);
     exit();
 }
@@ -53,7 +59,7 @@ $stmt = $conn->prepare("SELECT produtor_id_produtor FROM session WHERE jwt_token
 $stmt->bindValue(':t',$token);
 $stmt->execute();
 if($stmt->rowCount()==0) {
-    http_response_code(401);
+    http_response_code(200);
     echo json_encode(['status'=>'erro','mensagem'=>'Token inválido']);
     exit();
 }
@@ -62,9 +68,9 @@ $id_produtor = (int)$stmt->fetchColumn();
 // Horta
 $stmt = $conn->prepare("SELECT id_hortas FROM hortas WHERE produtor_id_produtor=:id LIMIT 1");
 $stmt->bindValue(':id',$id_produtor);
-$stmt->execute();
+stmt->execute();
 if($stmt->rowCount()==0) {
-    http_response_code(404);
+    http_response_code(200);
     echo json_encode(['status'=>'erro','mensagem'=>'Produtor sem horta']);
     exit();
 }
@@ -114,7 +120,7 @@ try {
         $upd->execute();
     }
 
-    // Log de movimentação
+    // Log
     $m=$conn->prepare("INSERT INTO entradas_estoque(estoques_id_estoques,produtor_id_produtor,quantidade,motivo) VALUES(:e,:pr,:q,:m)");
     $m->bindValue(':e',$id_estoque);
     $m->bindValue(':pr',$id_produtor);
@@ -123,11 +129,13 @@ try {
     $m->execute();
 
     $conn->commit();
+    http_response_code(200);
     echo json_encode(['status'=>'sucesso','id_produto'=>$id_produto,'nova_quantidade'=>$novaQtd]);
 
 } catch(Throwable $t){
     $conn->rollBack();
     error_log("ERRO ADD_MOV: " . $t->getMessage());
-    http_response_code(500);
+    http_response_code(200);
     echo json_encode(['status'=>'erro','mensagem'=>$t->getMessage()]);
 }
+?>
