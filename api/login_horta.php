@@ -115,6 +115,6 @@ try {
     send_response(false, "Erro no servidor (DB).");
 } catch (Throwable $t) {
     error_log("Throwable: " . $t->getMessage());
-    send_response(false, "Erro interno no servidor.");
+    send_response(false, "Erro interdawdno no servidor.");
 }
 ?>
